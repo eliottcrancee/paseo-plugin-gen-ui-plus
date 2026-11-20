@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { calendarLayout, calendarStats, dayLabel, readDays } from "../../shared/logic/calendarMath";
 import { formatShare, funnelStages, percentages, pieSlices } from "../../shared/logic/chartMath";
-import { canRenderWebIframe, mountSandboxedAppIframe } from "../web";
+import { canRenderWebIframe, createSandboxedIframeController, themeVarsKey, type SandboxedIframeController } from "../web";
 import { buildTree, defaultExpanded, timelineEntries, visibleRows } from "../../shared/logic/content-model";
 import {
   addMonths,
@@ -243,26 +243,51 @@ export function Chart({ props }: { props: Props }) {
 function ChartSandbox({ spec }: { spec: ChartSpecInfo }) {
   const { theme } = useUiRuntime();
   const containerRef = useRef<View>(null);
+  const controllerRef = useRef<SandboxedIframeController | null>(null);
   const [height, setHeight] = useState(spec.height);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const html = useMemo(() => buildChartHtml(spec), [spec]);
-  useEffect(() => {
-    setHeight(spec.height);
-  }, [spec.height]);
 
+  const sizedSpec = useMemo<ChartSpecInfo>(
+    () => (measuredWidth === null ? spec : { ...spec, width: measuredWidth }),
+    [spec, measuredWidth],
+  );
+  const html = useMemo(() => buildChartHtml(sizedSpec), [sizedSpec]);
+  const themeKey = themeVarsKey(theme);
+
+  // Mount a single persistent iframe once to avoid blank-flash flicker during streaming.
   useEffect(() => {
     if (!containerRef.current) return;
-    setError(null);
-    return mountSandboxedAppIframe(containerRef.current, {
-      html,
-      theme,
+    const ctrl = createSandboxedIframeController(containerRef.current, {
       height: spec.height,
       onHeight: setHeight,
       onError: setError,
     });
-  }, [html, theme, spec.height]);
+    controllerRef.current = ctrl;
+    return () => {
+      ctrl.destroy();
+      controllerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (measuredWidth === null) return;
+    setError(null);
+    controllerRef.current?.update(html, theme);
+  }, [html, themeKey, measuredWidth]);
+
   return (
-    <View style={{ width: "100%", gap: 4 }}>
+    <View
+      style={{ width: "100%", gap: 4 }}
+      onLayout={(e) => {
+        const rawW = e.nativeEvent.layout.width;
+        if (rawW > 0) {
+          // Quantize to 20px steps so subpixel layout jitters don't trigger unnecessary redraws.
+          const snapped = Math.max(220, Math.min(960, Math.round(rawW / 20) * 20));
+          setMeasuredWidth((prev) => (prev === snapped ? prev : snapped));
+        }
+      }}
+    >
       <View ref={containerRef} style={{ width: "100%", minHeight: height }} />
       {error !== null ? <ErrorLine message={error} /> : null}
     </View>

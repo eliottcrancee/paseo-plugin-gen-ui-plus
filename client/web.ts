@@ -110,9 +110,9 @@ addEventListener("load",measure);
 addEventListener("error",function(e){post({type:"error",message:String(e.message||"Script error")});});
 })();`;
 
-function buildSrcdoc(html: string, theme: PluginTheme): string {
+export function themeVarsKey(theme: PluginTheme): string {
   const c = theme.colors;
-  const vars = [
+  return [
     `--background:${c.surface0}`,
     `--card:${c.surface1}`,
     `--muted:${c.surface2}`,
@@ -127,6 +127,10 @@ function buildSrcdoc(html: string, theme: PluginTheme): string {
     `--warning:${c.statusWarning}`,
     `--destructive:${c.statusDanger}`,
   ].join(";");
+}
+
+function buildSrcdoc(html: string, theme: PluginTheme): string {
+  const vars = themeVarsKey(theme);
   const doctype = "<!doctype html>";
   const metaCsp = '<meta http-equiv="Content-Security-Policy" content="' + CSP + '">';
   const metaVp = '<meta name="viewport" content="width=device-width,initial-scale=1">';
@@ -136,22 +140,32 @@ function buildSrcdoc(html: string, theme: PluginTheme): string {
   return [doctype, metaCsp, metaVp, styleBase, styleTheme, scriptBoot, html].join("\n");
 }
 
-export function mountSandboxedAppIframe(
+export interface SandboxedIframeController {
+  update(html: string, theme: PluginTheme, minHeight?: number): void;
+  destroy(): void;
+}
+
+/**
+ * Mounts a single persistent sandboxed iframe and only rewrites `srcdoc` when
+ * the compiled document (HTML + theme CSS vars) actually changes. Avoids the
+ * blank flash caused by destroying and recreating the iframe during streaming.
+ */
+export function createSandboxedIframeController(
   hostRef: unknown,
   options: {
-    html: string;
-    theme: PluginTheme;
     height: number;
     onHeight(height: number): void;
     onError(message: string): void;
   },
-): () => void {
+): SandboxedIframeController {
   const web = getWeb();
   if (!web?.document || !web.window || !hostRef || typeof hostRef !== "object") {
-    return () => {};
+    return { update() {}, destroy() {} };
   }
   const container = hostRef as WebContainerElement;
-  if (typeof container.appendChild !== "function") return () => {};
+  if (typeof container.appendChild !== "function") {
+    return { update() {}, destroy() {} };
+  }
 
   const iframe = web.document.createElement("iframe");
   iframe.title = "Interactive App";
@@ -163,10 +177,11 @@ export function mountSandboxedAppIframe(
   iframe.style.display = "block";
   iframe.style.borderRadius = "8px";
   iframe.style.backgroundColor = "transparent";
-  iframe.srcdoc = buildSrcdoc(options.html, options.theme);
 
   container.innerHTML = "";
   container.appendChild(iframe);
+
+  let lastSrcdoc = "";
 
   const onMessage = (event: WebMessageEvent) => {
     if (event.source !== iframe.contentWindow) return;
@@ -183,10 +198,37 @@ export function mountSandboxedAppIframe(
   };
 
   web.window.addEventListener("message", onMessage);
-  return () => {
-    web.window?.removeEventListener("message", onMessage);
-    iframe.remove();
+
+  return {
+    update(html: string, theme: PluginTheme, minHeight?: number) {
+      const nextSrcdoc = buildSrcdoc(html, theme);
+      if (nextSrcdoc === lastSrcdoc) return;
+      lastSrcdoc = nextSrcdoc;
+      if (minHeight !== undefined) {
+        iframe.style.height = `${minHeight}px`;
+      }
+      iframe.srcdoc = nextSrcdoc;
+    },
+    destroy() {
+      web.window?.removeEventListener("message", onMessage);
+      iframe.remove();
+    },
   };
+}
+
+export function mountSandboxedAppIframe(
+  hostRef: unknown,
+  options: {
+    html: string;
+    theme: PluginTheme;
+    height: number;
+    onHeight(height: number): void;
+    onError(message: string): void;
+  },
+): () => void {
+  const controller = createSandboxedIframeController(hostRef, options);
+  controller.update(options.html, options.theme, options.height);
+  return () => controller.destroy();
 }
 
 /**

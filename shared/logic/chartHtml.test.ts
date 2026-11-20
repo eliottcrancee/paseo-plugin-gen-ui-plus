@@ -233,4 +233,12 @@ describe("chart html", () => {
     // No horizontal gridlines when showGrid is false.
     expect(html).not.toContain('<line x1=');
   });
+
+  it("adapts the SVG viewBox to narrow side-by-side columns across all chart types", () => {
+    for (const type of CHART_TYPES) {
+      const html = buildChartHtml({ ...CASES[type], width: 260 });
+      expect(html, type).toContain('viewBox="0 0 260 ');
+      expect(html, type).not.toMatch(/NaN|undefined|Infinity/);
+    }
+  });
 });

@@ -18,7 +18,15 @@ import type { GenUiBlockData, GenUiTextData } from "../shared/rpc";
 import { useAudioLoader, useImageLoader, useLoadedData, useTextLoader, type FileScope } from "./loaders";
 import { RenderNodes } from "./render";
 import { UiRuntimeContext, type UiRuntime } from "./runtime";
-import { canRenderWebIframe, mountSandboxedAppIframe, openWorkspaceFile, readStorage, writeStorage } from "./web";
+import {
+  canRenderWebIframe,
+  createSandboxedIframeController,
+  openWorkspaceFile,
+  readStorage,
+  themeVarsKey,
+  writeStorage,
+  type SandboxedIframeController,
+} from "./web";
 
 function readStoredValues(storageKey: string): Record<string, Value> {
   const raw = readStorage(storageKey);
@@ -304,21 +312,31 @@ export function AppBlockView({
   theme: PluginTheme;
 }) {
   const containerRef = useRef<View | null>(null);
+  const controllerRef = useRef<SandboxedIframeController | null>(null);
   const [height, setHeight] = useState(180);
   const [error, setError] = useState<string | null>(null);
   const webSupported = canRenderWebIframe();
+  const themeKey = themeVarsKey(theme);
 
   useEffect(() => {
     if (!complete || !webSupported || !containerRef.current) return;
-    setError(null);
-    return mountSandboxedAppIframe(containerRef.current, {
-      html,
-      theme,
-      height,
+    const ctrl = createSandboxedIframeController(containerRef.current, {
+      height: 180,
       onHeight: setHeight,
       onError: setError,
     });
-  }, [complete, html, theme, webSupported]);
+    controllerRef.current = ctrl;
+    return () => {
+      ctrl.destroy();
+      controllerRef.current = null;
+    };
+  }, [complete, webSupported]);
+
+  useEffect(() => {
+    if (!complete || !webSupported) return;
+    setError(null);
+    controllerRef.current?.update(html, theme);
+  }, [complete, html, themeKey, webSupported]);
 
   if (!complete) {
     return (

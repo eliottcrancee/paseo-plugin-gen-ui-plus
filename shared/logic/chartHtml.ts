@@ -47,6 +47,7 @@ export interface ChartSpecInfo {
   readonly donut: boolean;
   readonly smooth: boolean;
   readonly height: number;
+  readonly width?: number;
   readonly showValues: boolean;
   readonly orientation: "vertical" | "horizontal";
   readonly showGrid?: boolean;
@@ -224,27 +225,35 @@ function tipAttrs(title: string, seriesName: string | null, value: string, color
   return ` class="g-mark" data-tip-title="${esc(title)}"${seriesAttr} data-tip-value="${esc(value)}" data-tip-color="${esc(color)}"`;
 }
 
-const WIDTH = 720;
+const DEFAULT_WIDTH = 720;
+
+function chartWidth(spec: ChartSpecInfo): number {
+  const raw = spec.width;
+  return raw !== undefined && Number.isFinite(raw) ? Math.round(clamp(raw, 220, 960)) : DEFAULT_WIDTH;
+}
 
 function chartHeight(spec: ChartSpecInfo): number {
   return Math.round(Math.min(560, Math.max(150, spec.height)));
 }
 
-function svg(inner: string, height: number, title: string | null): string {
+function svg(inner: string, width: number, height: number, title: string | null): string {
   const label = title ? `<title>${esc(title)}</title>` : "";
-  return `<svg viewBox="0 0 ${WIDTH} ${height}" width="100%" height="${height}" preserveAspectRatio="xMidYMid meet" role="img">${label}${inner}</svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" preserveAspectRatio="xMidYMid meet" role="img">${label}${inner}</svg>`;
 }
 
 function noDataSvg(spec: ChartSpecInfo): string {
+  const width = chartWidth(spec);
   const height = chartHeight(spec);
   return svg(
-    `<text x="${WIDTH / 2}" y="${height / 2}" text-anchor="middle" font-size="12.5" fill="var(--muted-foreground)">No data</text>`,
+    `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" font-size="12.5" fill="var(--muted-foreground)">No data</text>`,
+    width,
     height,
     spec.title,
   );
 }
 
 interface Frame {
+  readonly width: number;
   readonly height: number;
   readonly left: number;
   readonly top: number;
@@ -257,13 +266,22 @@ function labelsRotate(labels: readonly string[]): boolean {
 }
 
 function axisFrame(spec: ChartSpecInfo, overrides?: { left?: number; right?: number; rotateX?: boolean }): Frame {
+  const width = chartWidth(spec);
   const height = chartHeight(spec);
   const top = 12;
   const rotateX = overrides?.rotateX ?? (spec.type !== "scatter" && labelsRotate(spec.labels));
   const bottom = (rotateX ? 60 : 34) + (spec.xLabel !== null ? 20 : 0);
-  const left = overrides?.left ?? 50 + (spec.yLabel !== null ? 14 : 0);
-  const right = overrides?.right ?? 16;
-  return { height, top, left, plotW: Math.max(120, WIDTH - left - right), plotH: Math.max(60, height - top - bottom) };
+  const baseLeft = width < 400 ? 40 : 50;
+  const left = overrides?.left ?? baseLeft + (spec.yLabel !== null ? 14 : 0);
+  const right = overrides?.right ?? 14;
+  return {
+    width,
+    height,
+    top,
+    left,
+    plotW: Math.max(80, width - left - right),
+    plotH: Math.max(60, height - top - bottom),
+  };
 }
 
 function y(v: number, scale: Scale, f: Frame): number {
@@ -533,7 +551,7 @@ function lineOrBarSvg(spec: ChartSpecInfo): string {
   parts.push(xTicksSvg(positions, spec.labels, f));
   parts.push(xLabelSvg(spec, f));
   parts.push(yLabelSvg(spec, f));
-  return svg(parts.join(""), f.height, spec.title);
+  return svg(parts.join(""), f.width, f.height, spec.title);
 }
 
 function rect(rx: number): string {
@@ -567,10 +585,12 @@ function bandFill(
 function hbarSvg(spec: ChartSpecInfo): string {
   const count = spec.labels.length;
   if (count === 0) return noDataSvg(spec);
+  const width = chartWidth(spec);
   const stacked = spec.stacked && spec.series.length > 1;
   const maxLabelLen = Math.min(20, Math.max(0, ...spec.labels.map((l) => l.length)));
-  const left = Math.max(64, Math.min(168, Math.round(maxLabelLen * 6.8 + 18))) + (spec.yLabel !== null ? 14 : 0);
-  const right = spec.showValues && !stacked ? 68 : 16;
+  const maxLeft = Math.min(168, Math.max(64, Math.round(width * 0.42)));
+  const left = Math.max(54, Math.min(maxLeft, Math.round(maxLabelLen * 6.8 + 18))) + (spec.yLabel !== null ? 14 : 0);
+  const right = spec.showValues && !stacked ? 68 : 14;
   const f = axisFrame(spec, { left, right, rotateX: false });
   const rowsH = f.plotH / count;
   const grid = stacked ? stackSeries(spec.series.map((s) => s.values)) : null;
@@ -653,7 +673,7 @@ function hbarSvg(spec: ChartSpecInfo): string {
 
   parts.push(xLabelSvg(spec, f));
   parts.push(yLabelSvg(spec, f));
-  return svg(parts.join(""), f.height, spec.title);
+  return svg(parts.join(""), f.width, f.height, spec.title);
 }
 
 function scatterSvg(spec: ChartSpecInfo): string {
@@ -703,7 +723,7 @@ function scatterSvg(spec: ChartSpecInfo): string {
   });
   parts.push(xLabelSvg(spec, f));
   parts.push(yLabelSvg(spec, f));
-  return svg(parts.join(""), f.height, spec.title);
+  return svg(parts.join(""), f.width, f.height, spec.title);
 }
 
 function axisSvg(spec: ChartSpecInfo): string {
@@ -725,15 +745,17 @@ function angleLabel(lx: number, ly: number, axis: number, count: number, text: s
 }
 
 function radarSvg(spec: ChartSpecInfo): string {
+  const width = chartWidth(spec);
   const height = chartHeight(spec);
   const count = spec.labels.length;
   if (count < 3) return noDataSvg(spec);
   const all = spec.series.flatMap((s) => s.values).filter((v): v is number => v !== null && Number.isFinite(v));
   if (all.length === 0) return noDataSvg(spec);
   const scale = scaleFor(all, true);
-  const cx = WIDTH / 2;
+  const cx = width / 2;
   const cy = height / 2;
-  const radius = Math.max(44, Math.min(height / 2 - 40, WIDTH / 2 - 80));
+  const sidePad = width < 360 ? 52 : 76;
+  const radius = Math.max(36, Math.min(height / 2 - 34, width / 2 - sidePad));
 
   const parts: string[] = [];
   for (const t of scale.ticks) {
@@ -778,17 +800,18 @@ function radarSvg(spec: ChartSpecInfo): string {
       }
     });
   });
-  return svg(parts.join(""), height, spec.title);
+  return svg(parts.join(""), width, height, spec.title);
 }
 
 function pieSvg(spec: ChartSpecInfo): string {
+  const width = chartWidth(spec);
   const height = chartHeight(spec);
   const slices: readonly Slice[] = pieSlices(spec.labels, spec.series[0]?.values ?? [], 8);
   if (slices.length === 0) return noDataSvg(spec);
   const shares = percentages(slices.map((s) => s.value));
-  const cx = WIDTH / 2;
+  const cx = width / 2;
   const cy = height / 2;
-  const radius = Math.max(40, Math.min(WIDTH / 2 - 24, height / 2 - 14));
+  const radius = Math.max(38, Math.min(width / 2 - 16, height / 2 - 14));
   const inner = spec.donut ? radius * 0.58 : 0;
 
   const parts: string[] = [];
@@ -841,16 +864,17 @@ function pieSvg(spec: ChartSpecInfo): string {
       `<text x="${cx}" y="${r2(cy + 14)}" text-anchor="middle" font-size="10" fill="var(--muted-foreground)">total</text>`,
     );
   }
-  return svg(parts.join(""), height, spec.title);
+  return svg(parts.join(""), width, height, spec.title);
 }
 
 function funnelSvg(spec: ChartSpecInfo): string {
+  const width = chartWidth(spec);
   const height = chartHeight(spec);
   const stages: readonly FunnelStage[] = funnelStages(spec.labels, spec.series[0]?.values ?? []);
   if (stages.length === 0) return noDataSvg(spec);
-  const pad = 120;
-  const usable = WIDTH - pad * 2;
-  const cx = WIDTH / 2;
+  const pad = Math.min(120, Math.max(36, Math.round(width * 0.16)));
+  const usable = width - pad * 2;
+  const cx = width / 2;
   const stageH = (height - 16) / stages.length;
   const tone = spec.series[0]?.tone ?? "info";
 
@@ -890,17 +914,18 @@ function funnelSvg(spec: ChartSpecInfo): string {
       );
     }
   });
-  return svg(parts.join(""), height, spec.title);
+  return svg(parts.join(""), width, height, spec.title);
 }
 
 const HEAT_FILLS = [0.15, 0.35, 0.6, 0.85, 1];
 
 function heatmapSvg(spec: ChartSpecInfo): string {
+  const width = chartWidth(spec);
   const rows = spec.series.length;
   const cols = spec.labels.length;
   if (rows === 0 || cols === 0) return noDataSvg(spec);
-  const nameW = 86;
-  const cw = Math.min(56, Math.max(24, (WIDTH - nameW - 20) / cols));
+  const nameW = Math.min(86, Math.max(52, Math.round(width * 0.24)));
+  const cw = Math.min(56, Math.max(20, (width - nameW - 16) / cols));
   const ch = 30;
   const gap = 3;
   const headerH = 20;
@@ -958,7 +983,7 @@ function heatmapSvg(spec: ChartSpecInfo): string {
       `<text x="${r2(nameW + (cols * (cw + gap)) / 2)}" y="${H - 4}" text-anchor="middle" font-size="10.5" fill="var(--muted-foreground)">${esc(spec.xLabel.slice(0, 60))}</text>`,
     );
   }
-  return svg(parts.join(""), H, spec.title);
+  return svg(parts.join(""), width, H, spec.title);
 }
 
 // ---------------------------------------------------------------------------
