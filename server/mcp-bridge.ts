@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -158,18 +158,34 @@ export async function startMcpBridge(deps: McpDeps): Promise<McpBridgeHandle> {
   };
 }
 
+function nvmNodeCandidates(home: string, binName: string): string[] {
+  const versionsDir = path.join(home, ".nvm", "versions", "node");
+  if (!existsSync(versionsDir)) return [];
+  try {
+    return readdirSync(versionsDir)
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+      .map((ver) => path.join(versionsDir, ver, "bin", binName));
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Finds a real `node` executable. Inside Paseo's standalone daemon binary,
- * `process.execPath` points to `paseo` itself rather than `node`, so passing it
- * a `.mjs` script fails with "unknown command".
+ * Finds a JS runtime (`node` or `bun`) that can execute `server/mcp-stdio.mjs`.
+ * - Pure npm/Node or Bun Paseo daemon: `process.execPath` is already `node`/`bun`.
+ * - Paseo desktop app / standalone binary (macOS & Linux): `process.execPath` points
+ *   to `paseo` itself, so we search `PATH` and standard macOS/Linux install locations
+ *   (system, Homebrew, Linuxbrew, nvm, volta, fnm, mise, asdf).
+ * - If none is found, `buildMcpServerConfig` falls back to `type: "http"` directly.
  */
 export function resolveNodeExecutable(): string | null {
   const execBase = path.basename(process.execPath);
-  if (/^node(\.exe)?$/i.test(execBase)) {
+  if (/^(node|bun)(\.exe)?$/i.test(execBase)) {
     return process.execPath;
   }
 
   const binName = process.platform === "win32" ? "node.exe" : "node";
+  const bunName = process.platform === "win32" ? "bun.exe" : "bun";
   const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
   const home = os.homedir();
   const candidates = [
@@ -177,9 +193,14 @@ export function resolveNodeExecutable(): string | null {
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",
     "/usr/bin/node",
+    "/home/linuxbrew/.linuxbrew/bin/node",
     path.join(home, ".volta", "bin", binName),
     path.join(home, ".fnm", "current", "bin", binName),
+    path.join(home, ".local", "share", "mise", "shims", binName),
     path.join(home, ".asdf", "shims", binName),
+    ...nvmNodeCandidates(home, binName),
+    ...pathDirs.map((dir) => path.join(dir, bunName)),
+    path.join(home, ".bun", "bin", bunName),
   ];
 
   for (const candidate of candidates) {
