@@ -64,6 +64,8 @@ import {
 } from "./server/project";
 import { createWebLookups } from "./server/web/lookups";
 
+const PREAPPROVE_MCP_PROVIDERS = new Set(["claude", "codex", "opencode"]);
+
 const DEFAULT_DEMO_SPEC = `$seats = 10
 $plan = "Pro"
 price = $plan == "Pro" ? 29 : 12
@@ -147,21 +149,23 @@ export default function contribute(server: PluginServerContext) {
             ...request.config.mcpServers,
             [GENUI_MCP_SERVER_NAME]: buildMcpServerConfig(bridge, request.config.cwd),
           };
-          const existingPreapproved = request.config.toolPolicy?.preapproved ?? [];
-          const addedPreapproved = GENUI_MCP_TOOL_NAMES.filter(
-            (tool) =>
-              !existingPreapproved.some(
-                (ref) => ref.kind === "mcp" && ref.server === GENUI_MCP_SERVER_NAME && ref.tool === tool,
-              ),
-          ).map((tool) => ({
-            kind: "mcp" as const,
-            server: GENUI_MCP_SERVER_NAME,
-            tool,
-          }));
-          nextToolPolicy = {
-            ...request.config.toolPolicy,
-            preapproved: [...existingPreapproved, ...addedPreapproved],
-          };
+          if (PREAPPROVE_MCP_PROVIDERS.has(request.config.provider.toLowerCase())) {
+            const existingPreapproved = request.config.toolPolicy?.preapproved ?? [];
+            const addedPreapproved = GENUI_MCP_TOOL_NAMES.filter(
+              (tool) =>
+                !existingPreapproved.some(
+                  (ref) => ref.kind === "mcp" && ref.server === GENUI_MCP_SERVER_NAME && ref.tool === tool,
+                ),
+            ).map((tool) => ({
+              kind: "mcp" as const,
+              server: GENUI_MCP_SERVER_NAME,
+              tool,
+            }));
+            nextToolPolicy = {
+              ...request.config.toolPolicy,
+              preapproved: [...existingPreapproved, ...addedPreapproved],
+            };
+          }
         } catch {
           // If the local MCP bridge cannot bind (e.g. restricted environment), fall back to full inline instructions.
           const fallbackPrompt = existing.includes(GENUI_MARKER)
