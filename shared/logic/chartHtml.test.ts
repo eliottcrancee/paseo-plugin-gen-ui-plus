@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChartHtml,
   CHART_TYPES,
+  normalizeLineDash,
   wheelTone,
   type ChartSeriesSpec,
   type ChartSpecInfo,
@@ -189,5 +190,47 @@ describe("chart html", () => {
     const shortBaseY = Number(/y="([\d.]+)" text-anchor="middle" font-size="10.5"/.exec(short)?.[1] ?? 0);
     expect(rotatedBaseY).toBeGreaterThan(0);
     expect(rotatedBaseY).toBeLessThan(shortBaseY);
+  });
+
+  it("emits hover tooltip markup and data-tip attributes by default, and omits script when tooltip is false", () => {
+    const withTip = buildChartHtml(spec({ type: "line", unit: "ms", series: [line("P50", [10, 20, 30])] }));
+    expect(withTip).toContain('id="g-tip"');
+    expect(withTip).toContain('data-tip-title="Mon"');
+    expect(withTip).toContain('data-tip-series="P50"');
+    expect(withTip).toContain('data-tip-value="10 ms"');
+
+    const noTip = buildChartHtml(spec({ type: "line", tooltip: false, series: [line("P50", [10, 20, 30])] }));
+    expect(noTip).not.toContain('id="g-tip"');
+    expect(noTip).not.toContain("<script>");
+  });
+
+  it("supports custom lineDash, strokeWidth, fillOpacity, pointRadius, showGrid, and showLegend", () => {
+    expect(normalizeLineDash("dotted")).toBe("2 3");
+    expect(normalizeLineDash("dashdot")).toBe("8 4 2 4");
+    expect(normalizeLineDash([10, 4, 2, 4])).toBe("10 4 2 4");
+    expect(normalizeLineDash("solid", true)).toBeNull();
+
+    const html = buildChartHtml(
+      spec({
+        type: "area",
+        showGrid: false,
+        showLegend: true,
+        series: [
+          line("Forecast", [10, 20, 30], {
+            lineDash: "8 4 2 4",
+            strokeWidth: 3.5,
+            fillOpacity: 0.3,
+            pointRadius: 5,
+          }),
+        ],
+      }),
+    );
+    expect(html).toContain('stroke-dasharray="8 4 2 4"');
+    expect(html).toContain('stroke-width="3.5"');
+    expect(html).toContain('fill-opacity="0.3"');
+    expect(html).toContain('r="5"');
+    expect(html).toContain("line-swatch");
+    // No horizontal gridlines when showGrid is false.
+    expect(html).not.toContain('<line x1=');
   });
 });

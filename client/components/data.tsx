@@ -1,6 +1,6 @@
 import { Icon, copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { InlineMarkdown } from "../markdown";
-import { buildChartHtml, CHART_TYPES, wheelTone, type ChartSpecInfo } from "../../shared/logic/chartHtml";
+import { buildChartHtml, CHART_TYPES, normalizeLineDash, wheelTone, type ChartSpecInfo } from "../../shared/logic/chartHtml";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { calendarLayout, calendarStats, dayLabel, readDays } from "../../shared/logic/calendarMath";
@@ -126,6 +126,10 @@ interface ParsedSeries {
   values: (number | null)[];
   tone: Tone;
   dashed?: boolean;
+  lineDash?: string | null;
+  strokeWidth?: number;
+  fillOpacity?: number;
+  pointRadius?: number;
 }
 
 /** A chart value read with its unit, the way the SVG charts print them. */
@@ -151,11 +155,18 @@ function parseChartSeries(raw: unknown): ParsedSeries[] {
         return { name, values: entry.map((v) => finiteNumber(v)), tone: wheelTone(idx) };
       }
       if (isObject(entry) && Array.isArray(entry.values)) {
+        const sw = finiteNumber(entry.strokeWidth);
+        const fo = finiteNumber(entry.fillOpacity);
+        const pr = finiteNumber(entry.pointRadius);
         return {
           name,
           values: entry.values.map((v) => finiteNumber(v)),
           tone: entry.tone !== undefined ? tone(entry.tone as never) : wheelTone(idx),
           dashed: typeof entry.dashed === "boolean" ? entry.dashed : undefined,
+          ...(entry.lineDash !== undefined ? { lineDash: normalizeLineDash(entry.lineDash) } : {}),
+          ...(sw !== null ? { strokeWidth: sw } : {}),
+          ...(fo !== null ? { fillOpacity: fo } : {}),
+          ...(pr !== null ? { pointRadius: pr } : {}),
         };
       }
       return { name, values: [], tone: wheelTone(idx) };
@@ -170,6 +181,10 @@ function chartSpecInfo(props: Props, series: ParsedSeries[]): ChartSpecInfo {
   const unit = optionalText(props.unit) ?? "";
   const height = Math.round(Math.min(560, Math.max(150, finiteNumber(props.height) ?? 260)));
   const allDashed = props.dashed === true;
+  const globalLineDash = props.lineDash !== undefined ? normalizeLineDash(props.lineDash) : undefined;
+  const globalStrokeWidth = finiteNumber(props.strokeWidth) ?? undefined;
+  const globalFillOpacity = finiteNumber(props.fillOpacity) ?? undefined;
+  const globalPointRadius = finiteNumber(props.pointRadius) ?? undefined;
   const showValuesRaw = props.showValues;
   const showValues =
     showValuesRaw === true
@@ -180,7 +195,26 @@ function chartSpecInfo(props: Props, series: ParsedSeries[]): ChartSpecInfo {
   return {
     type,
     labels: list(props.labels).map((l) => text(l)),
-    series: series.map((s) => ({ name: s.name, tone: s.tone, dashed: s.dashed ?? allDashed, values: s.values })),
+    series: series.map((s) => {
+      const dashed = s.dashed ?? allDashed;
+      const lineDash = s.lineDash !== undefined ? s.lineDash : globalLineDash !== undefined ? globalLineDash : undefined;
+      return {
+        name: s.name,
+        tone: s.tone,
+        dashed,
+        ...(lineDash !== undefined ? { lineDash } : {}),
+        ...(s.strokeWidth !== undefined || globalStrokeWidth !== undefined
+          ? { strokeWidth: s.strokeWidth ?? globalStrokeWidth }
+          : {}),
+        ...(s.fillOpacity !== undefined || globalFillOpacity !== undefined
+          ? { fillOpacity: s.fillOpacity ?? globalFillOpacity }
+          : {}),
+        ...(s.pointRadius !== undefined || globalPointRadius !== undefined
+          ? { pointRadius: s.pointRadius ?? globalPointRadius }
+          : {}),
+        values: s.values,
+      };
+    }),
     unit,
     title: optionalText(props.title),
     xLabel: optionalText(props.xLabel),
@@ -191,6 +225,9 @@ function chartSpecInfo(props: Props, series: ParsedSeries[]): ChartSpecInfo {
     height,
     showValues,
     orientation: text(props.orientation) === "horizontal" ? "horizontal" : "vertical",
+    showGrid: props.showGrid !== false,
+    ...(typeof props.showLegend === "boolean" ? { showLegend: props.showLegend } : {}),
+    tooltip: props.tooltip !== false,
   };
 }
 

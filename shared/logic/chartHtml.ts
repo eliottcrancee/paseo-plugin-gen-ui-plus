@@ -28,6 +28,10 @@ export interface ChartSeriesSpec {
   readonly name: string;
   readonly tone: Tone;
   readonly dashed: boolean;
+  readonly lineDash?: string | null;
+  readonly strokeWidth?: number;
+  readonly fillOpacity?: number;
+  readonly pointRadius?: number;
   readonly values: readonly (number | null)[];
 }
 
@@ -45,6 +49,57 @@ export interface ChartSpecInfo {
   readonly height: number;
   readonly showValues: boolean;
   readonly orientation: "vertical" | "horizontal";
+  readonly showGrid?: boolean;
+  readonly showLegend?: boolean;
+  readonly tooltip?: boolean;
+}
+
+const DASH_PRESETS: Readonly<Record<string, string | null>> = {
+  solid: null,
+  none: null,
+  dashed: "6 4",
+  dotted: "2 3",
+  dashdot: "8 4 2 4",
+};
+
+/** Normalizes a `lineDash` option (preset, `"8 4"`, `[8, 4]`) or `dashed` flag to a safe SVG `stroke-dasharray` value. */
+export function normalizeLineDash(raw: unknown, dashed?: boolean): string | null {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim().toLowerCase();
+    if (trimmed === "") return null;
+    if (Object.hasOwn(DASH_PRESETS, trimmed)) return DASH_PRESETS[trimmed] ?? null;
+    const nums = trimmed
+      .split(/[\s,]+/)
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return nums.length > 0 ? nums.map((n) => String(Math.round(n * 100) / 100)).join(" ") : null;
+  }
+  if (Array.isArray(raw)) {
+    const nums = raw.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+    return nums.length > 0 ? nums.map((n) => String(Math.round(n * 100) / 100)).join(" ") : null;
+  }
+  return dashed ? "5 4" : null;
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
+}
+
+function seriesDash(s: ChartSeriesSpec): string | null {
+  if (s.lineDash !== undefined) return s.lineDash;
+  return s.dashed ? "5 4" : null;
+}
+
+function seriesStrokeWidth(s: ChartSeriesSpec): number {
+  return s.strokeWidth !== undefined && Number.isFinite(s.strokeWidth) ? clamp(s.strokeWidth, 1, 6) : 2;
+}
+
+function seriesFillOpacity(s: ChartSeriesSpec, fallback: number): number {
+  return s.fillOpacity !== undefined && Number.isFinite(s.fillOpacity) ? clamp(s.fillOpacity, 0, 1) : fallback;
+}
+
+function seriesPointRadius(s: ChartSeriesSpec, fallback: number): number {
+  return s.pointRadius !== undefined && Number.isFinite(s.pointRadius) ? clamp(s.pointRadius, 0, 8) : fallback;
 }
 
 export const CHART_TYPES: readonly ChartType[] = [
@@ -114,11 +169,60 @@ function printed(v: number, unit: string): string {
   return unit ? `${text} ${unit}` : text;
 }
 
-const CHART_CSS = `.g-chart{padding:4px 2px 2px}
+const CHART_CSS = `.g-chart{position:relative;padding:4px 2px 2px}
 .g-title{font-size:13.5px;font-weight:600;color:var(--foreground);margin:0 0 8px 4px;line-height:1.35}
 .g-legend{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 4px 2px 4px}
 .g-legend .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted-foreground);line-height:1.3}
-.g-legend .dot{width:9px;height:9px;border-radius:5px;flex:none}`;
+.g-legend .dot{width:9px;height:9px;border-radius:5px;flex:none}
+.g-legend .line-swatch{width:16px;height:0;border-top:2px dashed;flex:none}
+.g-mark{cursor:pointer;transition:opacity 120ms ease,filter 120ms ease}
+.g-mark:hover{filter:brightness(1.12)}
+.g-tip{position:absolute;top:0;left:0;z-index:20;pointer-events:none;opacity:0;transition:opacity 110ms ease;background:var(--card);color:var(--foreground);border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-size:12px;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,0.18);max-width:240px;white-space:nowrap}
+.g-tip.show{opacity:1}
+.g-tip-head{font-weight:600;color:var(--foreground);margin-bottom:2px}
+.g-tip-row{display:flex;align-items:center;gap:6px;color:var(--muted-foreground)}
+.g-tip-dot{width:8px;height:8px;border-radius:4px;flex:none}
+.g-tip-val{font-weight:600;color:var(--foreground)}`;
+
+const TOOLTIP_SCRIPT = `(function(){
+var root=document.querySelector(".g-chart"),tip=document.getElementById("g-tip");
+if(!root||!tip)return;
+var head=document.createElement("div");head.className="g-tip-head";
+var row=document.createElement("div");row.className="g-tip-row";
+var dot=document.createElement("span");dot.className="g-tip-dot";
+var ser=document.createElement("span");
+var val=document.createElement("span");val.className="g-tip-val";
+row.appendChild(dot);row.appendChild(ser);row.appendChild(val);
+tip.appendChild(head);tip.appendChild(row);
+function place(e){
+var r=root.getBoundingClientRect(),x=e.clientX-r.left+12,y=e.clientY-r.top-12;
+var tw=tip.offsetWidth||120,th=tip.offsetHeight||44;
+if(x+tw>r.width-4)x=Math.max(4,e.clientX-r.left-tw-12);
+if(y+th>r.height-4)y=Math.max(4,r.height-th-4);
+if(y<4)y=4;
+tip.style.transform="translate("+Math.round(x)+"px,"+Math.round(y)+"px)";
+}
+root.addEventListener("pointermove",function(e){
+var el=e.target&&e.target.closest?e.target.closest("[data-tip-value]"):null;
+if(!el){tip.classList.remove("show");return;}
+var t=el.getAttribute("data-tip-title")||"";
+var s=el.getAttribute("data-tip-series")||"";
+var v=el.getAttribute("data-tip-value")||"";
+var c=el.getAttribute("data-tip-color")||"var(--primary)";
+head.textContent=t;head.style.display=t?"block":"none";
+dot.style.background=c;
+ser.textContent=s?s+": ":"";
+val.textContent=v;
+tip.classList.add("show");
+place(e);
+});
+root.addEventListener("pointerleave",function(){tip.classList.remove("show");});
+})();`;
+
+function tipAttrs(title: string, seriesName: string | null, value: string, color: string): string {
+  const seriesAttr = seriesName && seriesName !== "Value" ? ` data-tip-series="${esc(seriesName)}"` : "";
+  return ` class="g-mark" data-tip-title="${esc(title)}"${seriesAttr} data-tip-value="${esc(value)}" data-tip-color="${esc(color)}"`;
+}
 
 const WIDTH = 720;
 
@@ -170,12 +274,16 @@ function xTickText(l: string): string {
   return esc(l.length > 18 ? `${l.slice(0, 17)}…` : l);
 }
 
-function yTicksSvg(scale: Scale, f: Frame): string {
+function yTicksSvg(scale: Scale, f: Frame, showGrid = true): string {
   const parts: string[] = [];
   for (const t of scale.ticks) {
     const py = y(t, scale, f);
+    if (showGrid) {
+      parts.push(
+        `<line x1="${f.left}" y1="${r2(py)}" x2="${f.left + f.plotW}" y2="${r2(py)}" stroke="var(--border)" opacity="0.55"/>`,
+      );
+    }
     parts.push(
-      `<line x1="${f.left}" y1="${r2(py)}" x2="${f.left + f.plotW}" y2="${r2(py)}" stroke="var(--border)" opacity="0.55"/>`,
       `<text x="${f.left - 7}" y="${r2(py + 3.5)}" text-anchor="end" font-size="10.5" fill="var(--muted-foreground)">${esc(tick(t))}</text>`,
     );
   }
@@ -230,8 +338,8 @@ function pathOf(points: readonly Pt[], smooth: boolean): string {
   return d;
 }
 
-function dashAttr(dashed: boolean): string {
-  return dashed ? ' stroke-dasharray="5 4"' : "";
+function dashAttr(dash: string | null): string {
+  return dash ? ` stroke-dasharray="${esc(dash)}"` : "";
 }
 
 function valueMark(x: number, yTop: number, v: number, unit: string): string {
@@ -296,19 +404,24 @@ function lineOrBarSvg(spec: ChartSpecInfo): string {
     );
   }
 
-  const parts: string[] = [yTicksSvg(scale, f)];
+  const showGrid = spec.showGrid !== false;
+  const parts: string[] = [yTicksSvg(scale, f, showGrid)];
 
   if (spec.type === "bar") {
     const slot = f.plotW / count;
     if (grid) {
       const groupW = Math.min(72, Math.max(6, slot * 0.66));
       spec.series.forEach((s, si) => {
+        const col = seriesColor(spec.series, si);
+        const op = seriesFillOpacity(s, opacityOf(si));
         (grid[si] ?? []).forEach((seg, i) => {
           if (!seg) return;
           const topY = y(seg.to, scale, f);
           const bottomY = y(seg.from, scale, f);
+          const own = s.values[i] ?? seg.to - seg.from;
+          const tip = tipAttrs(spec.labels[i] ?? "", s.name, printed(own, spec.unit), col);
           parts.push(
-            `<rect x="${r2(positions[i]! - groupW / 2)}" y="${r2(topY)}" width="${r2(groupW)}" height="${r2(Math.max(2, bottomY - topY))}" ${rect(seg.outer ? 3 : 0)} fill="${seriesColor(spec.series, si)}" fill-opacity="${opacityOf(si)}"/>`,
+            `<rect x="${r2(positions[i]! - groupW / 2)}" y="${r2(topY)}" width="${r2(groupW)}" height="${r2(Math.max(2, bottomY - topY))}" ${rect(seg.outer ? 3 : 0)} fill="${col}" fill-opacity="${r2(op)}"${tip}/>`,
           );
         });
       });
@@ -331,14 +444,17 @@ function lineOrBarSvg(spec: ChartSpecInfo): string {
       const gap = spec.series.length > 1 ? 2 : 0;
       const barW = Math.max(2, (groupW - gap * (spec.series.length - 1)) / Math.max(1, spec.series.length));
       spec.series.forEach((s, si) => {
+        const col = seriesColor(spec.series, si);
+        const op = seriesFillOpacity(s, opacityOf(si));
         s.values.forEach((v, i) => {
           if (v === null || !Number.isFinite(v)) return;
           // Both signs draw: the rect spans zero to the value, whichever way it points.
           const topY = y(Math.max(0, v), scale, f);
           const bottomY = y(Math.min(0, v), scale, f);
           const x = positions[i]! - groupW / 2 + si * (barW + gap);
+          const tip = tipAttrs(spec.labels[i] ?? "", s.name, printed(v, spec.unit), col);
           parts.push(
-            `<rect x="${r2(x)}" y="${r2(topY)}" width="${r2(barW)}" height="${r2(Math.max(2, bottomY - topY))}" ${rect(3)} fill="${seriesColor(spec.series, si)}" fill-opacity="${opacityOf(si)}"/>`,
+            `<rect x="${r2(x)}" y="${r2(topY)}" width="${r2(barW)}" height="${r2(Math.max(2, bottomY - topY))}" ${rect(3)} fill="${col}" fill-opacity="${r2(op)}"${tip}/>`,
           );
           if (spec.showValues && count <= 12 && spec.series.length <= 2) {
             const markY = v >= 0 ? topY : bottomY + 12;
@@ -360,17 +476,19 @@ function lineOrBarSvg(spec: ChartSpecInfo): string {
         let previous: readonly (number | null)[] = spec.labels.map(() => 0);
         spec.series.forEach((s, si) => {
           const top: (number | null)[] = spec.labels.map((_, i) => plottedAt(si, i));
-          parts.push(bandFill(positions, top, previous, scale, f, seriesColor(spec.series, si), si));
+          const op = seriesFillOpacity(s, opacityOf(si) * 0.5);
+          parts.push(bandFill(positions, top, previous, scale, f, seriesColor(spec.series, si), op));
           previous = top;
         });
       } else {
         const zeroY = y(0, scale, f);
         spec.series.forEach((s, si) => {
+          const op = seriesFillOpacity(s, 0.16);
           for (const run of lineRuns(s.values, positions, scale, f)) {
             if (run.length < 2) continue;
             const d = pathOf(run, spec.smooth);
             parts.push(
-              `<path d="${d}L${r2(run[run.length - 1]!.x)},${r2(zeroY)}L${r2(run[0]!.x)},${r2(zeroY)}Z" fill="${seriesColor(spec.series, si)}" fill-opacity="0.16" stroke="none"/>`,
+              `<path d="${d}L${r2(run[run.length - 1]!.x)},${r2(zeroY)}L${r2(run[0]!.x)},${r2(zeroY)}Z" fill="${seriesColor(spec.series, si)}" fill-opacity="${r2(op)}" stroke="none"/>`,
             );
           }
         });
@@ -378,23 +496,35 @@ function lineOrBarSvg(spec: ChartSpecInfo): string {
     }
 
     spec.series.forEach((s, si) => {
+      const col = seriesColor(spec.series, si);
+      const sw = seriesStrokeWidth(s);
+      const dash = seriesDash(s);
+      const pr = seriesPointRadius(s, 3);
       // A stacked band's stroke follows its top, not the series' own values.
       const drawn = spec.labels.map((_, i) => plottedAt(si, i));
       for (const run of lineRuns(drawn, positions, scale, f)) {
         parts.push(
-          `<path d="${pathOf(run, spec.smooth)}" fill="none" stroke="${seriesColor(spec.series, si)}" stroke-width="2"${dashAttr(s.dashed)}/>`,
+          `<path d="${pathOf(run, spec.smooth)}" fill="none" stroke="${col}" stroke-width="${r2(sw)}"${dashAttr(dash)}/>`,
         );
       }
       drawn.forEach((v, i) => {
         if (v === null || !Number.isFinite(v)) return;
-        if (drawn.length <= 20 || spec.showValues) {
+        const cx = positions[i]!;
+        const cy = y(v, scale, f);
+        const own = s.values[i];
+        const tipVal = own !== null && own !== undefined ? printed(own, spec.unit) : printed(v, spec.unit);
+        const tip = tipAttrs(spec.labels[i] ?? "", s.name, tipVal, col);
+        if (pr > 0 && (drawn.length <= 20 || spec.showValues || s.pointRadius !== undefined)) {
           parts.push(
-            `<circle cx="${r2(positions[i]!)}" cy="${r2(y(v, scale, f))}" r="3" fill="${seriesColor(spec.series, si)}" stroke="var(--background)" stroke-width="1.5"/>`,
+            `<circle cx="${r2(cx)}" cy="${r2(cy)}" r="${r2(pr)}" fill="${col}" stroke="var(--background)" stroke-width="1.5"/>`,
           );
         }
-        const own = s.values[i];
+        // Larger transparent hover target makes hovering points effortless even when dots are small or hidden.
+        if (spec.tooltip !== false) {
+          parts.push(`<circle cx="${r2(cx)}" cy="${r2(cy)}" r="8" fill="transparent" stroke="none"${tip}/>`);
+        }
         if (spec.showValues && own !== null && own !== undefined && drawn.length <= 12 && spec.series.length <= 2) {
-          parts.push(valueMark(positions[i]!, y(v, scale, f) - 2, own, spec.unit));
+          parts.push(valueMark(cx, cy - 2, own, spec.unit));
         }
       });
     });
@@ -418,7 +548,7 @@ function bandFill(
   scale: Scale,
   f: Frame,
   fill: string,
-  si: number,
+  fillOpacity: number,
 ): string {
   const topPts = positions
     .map((x, i) => ({ x, v: top[i] ?? 0 }))
@@ -430,7 +560,7 @@ function bandFill(
     .reverse()
     .map((p) => `L${r2(p.x)},${r2(y(p.v, scale, f))}`)
     .join("");
-  return `<path d="${d}L${r2(right.x)},${r2(right.y)}${back}Z" fill="${fill}" fill-opacity="${opacityOf(si) * 0.5}" stroke="none"/>`;
+  return `<path d="${d}L${r2(right.x)},${r2(right.y)}${back}Z" fill="${fill}" fill-opacity="${r2(fillOpacity)}" stroke="none"/>`;
 }
 
 /** Bar with horizontal rows: labels left, value axis along the bottom. */
@@ -464,11 +594,16 @@ function hbarSvg(spec: ChartSpecInfo): string {
   const zeroX = f.left + ((0 - scale.min) / (scale.max - scale.min)) * f.plotW;
   const xpx = (v: number) => f.left + ((v - scale.min) / (scale.max - scale.min)) * f.plotW;
 
+  const showGrid = spec.showGrid !== false;
   const parts: string[] = [];
   for (const t of scale.ticks) {
     const px = xpx(t);
+    if (showGrid) {
+      parts.push(
+        `<line x1="${r2(px)}" y1="${f.top}" x2="${r2(px)}" y2="${f.top + f.plotH}" stroke="var(--border)" opacity="0.55"/>`,
+      );
+    }
     parts.push(
-      `<line x1="${r2(px)}" y1="${f.top}" x2="${r2(px)}" y2="${f.top + f.plotH}" stroke="var(--border)" opacity="0.55"/>`,
       `<text x="${r2(px)}" y="${f.top + f.plotH + 16}" text-anchor="middle" font-size="10.5" fill="var(--muted-foreground)">${esc(tick(t))}</text>`,
     );
   }
@@ -484,8 +619,12 @@ function hbarSvg(spec: ChartSpecInfo): string {
         if (!seg) return;
         const x0 = xpx(seg.from);
         const x1 = xpx(seg.to);
+        const col = seriesColor(spec.series, si);
+        const op = seriesFillOpacity(s, opacityOf(si));
+        const own = s.values[i] ?? seg.to - seg.from;
+        const tip = tipAttrs(label, s.name, printed(own, spec.unit), col);
         parts.push(
-          `<rect x="${r2(Math.min(x0, x1))}" y="${r2(cy - rowsH * 0.28)}" width="${r2(Math.max(2, Math.abs(x1 - x0)))}" height="${r2(rowsH * 0.56)}" ${rect(3)} fill="${seriesColor(spec.series, si)}" fill-opacity="${opacityOf(si)}"/>`,
+          `<rect x="${r2(Math.min(x0, x1))}" y="${r2(cy - rowsH * 0.28)}" width="${r2(Math.max(2, Math.abs(x1 - x0)))}" height="${r2(rowsH * 0.56)}" ${rect(3)} fill="${col}" fill-opacity="${r2(op)}"${tip}/>`,
         );
       });
     } else {
@@ -497,8 +636,11 @@ function hbarSvg(spec: ChartSpecInfo): string {
         const w = Math.max(2, Math.abs(xpx(v) - zeroX));
         const yy = cy - (spec.series.length * (barH + 2)) / 2 + si * (barH + 2);
         const subCy = yy + barH / 2;
+        const col = seriesColor(spec.series, si);
+        const op = seriesFillOpacity(s, opacityOf(si));
+        const tip = tipAttrs(label, s.name, printed(v, spec.unit), col);
         parts.push(
-          `<rect x="${r2(x0)}" y="${r2(yy)}" width="${r2(w)}" height="${r2(barH)}" ${rect(3)} fill="${seriesColor(spec.series, si)}" fill-opacity="${opacityOf(si)}"/>`,
+          `<rect x="${r2(x0)}" y="${r2(yy)}" width="${r2(w)}" height="${r2(barH)}" ${rect(3)} fill="${col}" fill-opacity="${r2(op)}"${tip}/>`,
         );
         if (spec.showValues) {
           parts.push(
@@ -524,11 +666,16 @@ function scatterSvg(spec: ChartSpecInfo): string {
   const xpx = (v: number) => f.left + ((v - sx.min) / (sx.max - sx.min)) * f.plotW;
   const ypx = (v: number) => y(v, sy, f);
 
-  const parts: string[] = [yTicksSvg(sy, f)];
+  const showGrid = spec.showGrid !== false;
+  const parts: string[] = [yTicksSvg(sy, f, showGrid)];
   for (const t of sx.ticks) {
     const px = xpx(t);
+    if (showGrid) {
+      parts.push(
+        `<line x1="${r2(px)}" y1="${f.top}" x2="${r2(px)}" y2="${f.top + f.plotH}" stroke="var(--border)" opacity="0.35"/>`,
+      );
+    }
     parts.push(
-      `<line x1="${r2(px)}" y1="${f.top}" x2="${r2(px)}" y2="${f.top + f.plotH}" stroke="var(--border)" opacity="0.35"/>`,
       `<text x="${r2(px)}" y="${f.top + f.plotH + 16}" text-anchor="middle" font-size="10.5" fill="var(--muted-foreground)">${esc(tick(t))}</text>`,
     );
   }
@@ -540,8 +687,13 @@ function scatterSvg(spec: ChartSpecInfo): string {
     );
   }
   points.forEach((p) => {
+    const s = spec.series[p.series];
+    const col = seriesColor(spec.series, p.series);
+    const pr = s ? seriesPointRadius(s, 4) : 4;
+    const op = s ? seriesFillOpacity(s, opacityOf(p.series)) : opacityOf(p.series);
+    const tip = tipAttrs(`x = ${formatNumber(p.x)}`, s?.name ?? null, printed(p.y, spec.unit), col);
     parts.push(
-      `<circle cx="${r2(xpx(p.x))}" cy="${r2(ypx(p.y))}" r="4" fill="${seriesColor(spec.series, p.series)}" fill-opacity="${opacityOf(p.series)}" stroke="var(--background)" stroke-width="1.5"/>`,
+      `<circle cx="${r2(xpx(p.x))}" cy="${r2(ypx(p.y))}" r="${r2(Math.max(1.5, pr))}" fill="${col}" fill-opacity="${r2(op)}" stroke="var(--background)" stroke-width="1.5"${tip}/>`,
     );
     if (spec.showValues && points.length <= 24) {
       parts.push(
@@ -601,6 +753,11 @@ function radarSvg(spec: ChartSpecInfo): string {
     parts.push(angleLabel(lx, ly, a, count, spec.labels[a] ?? ""));
   }
   spec.series.forEach((s, si) => {
+    const col = seriesColor(spec.series, si);
+    const sw = seriesStrokeWidth(s);
+    const dash = seriesDash(s);
+    const op = seriesFillOpacity(s, opacityOf(si) * 0.18);
+    const pr = seriesPointRadius(s, 2.6);
     const polygon: string[] = [];
     s.values.forEach((v, a) => {
       const ratio = v === null ? 0 : Math.max(0, Math.min(1, v / scale.max));
@@ -608,12 +765,17 @@ function radarSvg(spec: ChartSpecInfo): string {
       polygon.push(`${r2(px)},${r2(py)}`);
     });
     parts.push(
-      `<polygon points="${polygon.join(" ")}" fill="${seriesColor(spec.series, si)}" fill-opacity="${opacityOf(si) * 0.18}" stroke="${seriesColor(spec.series, si)}" stroke-width="2"${dashAttr(s.dashed)} stroke-linejoin="round"/>`,
+      `<polygon points="${polygon.join(" ")}" fill="${col}" fill-opacity="${r2(op)}" stroke="${col}" stroke-width="${r2(sw)}"${dashAttr(dash)} stroke-linejoin="round"/>`,
     );
     s.values.forEach((v, a) => {
       if (v === null || !Number.isFinite(v)) return;
       const [px, py] = radarPoint(cx, cy, radius, a, count, Math.max(0, Math.min(1, v / scale.max)));
-      parts.push(`<circle cx="${r2(px)}" cy="${r2(py)}" r="2.6" fill="${seriesColor(spec.series, si)}"/>`);
+      const tip = tipAttrs(spec.labels[a] ?? "", s.name, printed(v, spec.unit), col);
+      if (pr > 0) {
+        parts.push(`<circle cx="${r2(px)}" cy="${r2(py)}" r="${r2(pr)}" fill="${col}"${tip}/>`);
+      } else if (spec.tooltip !== false) {
+        parts.push(`<circle cx="${r2(px)}" cy="${r2(py)}" r="6" fill="transparent"${tip}/>`);
+      }
     });
   });
   return svg(parts.join(""), height, spec.title);
@@ -632,21 +794,24 @@ function pieSvg(spec: ChartSpecInfo): string {
   const parts: string[] = [];
   let angle = -Math.PI / 2;
   slices.forEach((slice, i) => {
-    const share = (shares[i] ?? 0) / 100;
+    const sharePct = shares[i] ?? 0;
+    const share = sharePct / 100;
     if (share <= 0) return;
     const sweep = share * Math.PI * 2;
     const a0 = angle;
     const a1 = angle + sweep;
     angle = a1;
+    const col = sliceColor(i);
+    const tip = tipAttrs(slice.label, null, `${printed(slice.value, spec.unit)} (${sharePct}%)`, col);
     if (share >= 0.999) {
       // A whole circle: an arc path degenerates, so draw a ring or disc.
       if (inner > 0) {
         const mid = (radius + inner) / 2;
         parts.push(
-          `<circle cx="${cx}" cy="${cy}" r="${r2(mid)}" fill="none" stroke="${sliceColor(i)}" stroke-width="${r2(radius - inner)}"/>`,
+          `<circle cx="${cx}" cy="${cy}" r="${r2(mid)}" fill="none" stroke="${col}" stroke-width="${r2(radius - inner)}"${tip}/>`,
         );
       } else {
-        parts.push(`<circle cx="${cx}" cy="${cy}" r="${r2(radius)}" fill="${sliceColor(i)}"/>`);
+        parts.push(`<circle cx="${cx}" cy="${cy}" r="${r2(radius)}" fill="${col}"${tip}/>`);
       }
       return;
     }
@@ -661,11 +826,11 @@ function pieSvg(spec: ChartSpecInfo): string {
       const ix0 = cx + inner * Math.cos(a0);
       const iy0 = cy + inner * Math.sin(a0);
       parts.push(
-        `<path d="M${r2(x0)},${r2(yy0)}A${r2(radius)},${r2(radius)},0,${large},1,${r2(x1)},${r2(yy1)}L${r2(ix1)},${r2(iy1)}A${r2(inner)},${r2(inner)},0,${large},0,${r2(ix0)},${r2(iy0)}Z" fill="${sliceColor(i)}" fill-opacity="${opacityOf(i)}" stroke="var(--card)" stroke-width="2" stroke-linejoin="round"/>`,
+        `<path d="M${r2(x0)},${r2(yy0)}A${r2(radius)},${r2(radius)},0,${large},1,${r2(x1)},${r2(yy1)}L${r2(ix1)},${r2(iy1)}A${r2(inner)},${r2(inner)},0,${large},0,${r2(ix0)},${r2(iy0)}Z" fill="${col}" fill-opacity="${opacityOf(i)}" stroke="var(--card)" stroke-width="2" stroke-linejoin="round"${tip}/>`,
       );
     } else {
       parts.push(
-        `<path d="M${r2(cx)},${r2(cy)}L${r2(x0)},${r2(yy0)}A${r2(radius)},${r2(radius)},0,${large},1,${r2(x1)},${r2(yy1)}Z" fill="${sliceColor(i)}" fill-opacity="${opacityOf(i)}" stroke="var(--card)" stroke-width="2" stroke-linejoin="round"/>`,
+        `<path d="M${r2(cx)},${r2(cy)}L${r2(x0)},${r2(yy0)}A${r2(radius)},${r2(radius)},0,${large},1,${r2(x1)},${r2(yy1)}Z" fill="${col}" fill-opacity="${opacityOf(i)}" stroke="var(--card)" stroke-width="2" stroke-linejoin="round"${tip}/>`,
       );
     }
   });
@@ -697,8 +862,11 @@ function funnelSvg(spec: ChartSpecInfo): string {
     // The trapezoid flows from the previous stage's width into this one's.
     const pw = usable * Math.max(previous, stage.width);
     const cw = usable * stage.width;
+    const col = TONE_VAR[tone];
+    const shareText = i > 0 && stage.ofFirst !== null ? ` (${formatShare(stage.ofFirst)})` : "";
+    const tip = tipAttrs(stage.label, null, `${printed(stage.value, spec.unit)}${shareText}`, col);
     parts.push(
-      `<path d="M${r2(cx - pw / 2)},${r2(y0)}L${r2(cx - cw / 2)},${r2(y1)}L${r2(cx + cw / 2)},${r2(y1)}L${r2(cx + pw / 2)},${r2(y0)}Z" fill="${TONE_VAR[tone]}" fill-opacity="${r2(1 - (i / Math.max(1, stages.length - 1)) * 0.5)}" stroke="var(--card)" stroke-width="1.5"/>`,
+      `<path d="M${r2(cx - pw / 2)},${r2(y0)}L${r2(cx - cw / 2)},${r2(y1)}L${r2(cx + cw / 2)},${r2(y1)}L${r2(cx + pw / 2)},${r2(y0)}Z" fill="${col}" fill-opacity="${r2(1 - (i / Math.max(1, stages.length - 1)) * 0.5)}" stroke="var(--card)" stroke-width="1.5"${tip}/>`,
     );
     if (stage.width > 0.18) {
       parts.push(
@@ -763,8 +931,9 @@ function heatmapSvg(spec: ChartSpecInfo): string {
       }
       const level = heatLevel(v, maxVal, 5);
       const strong = level >= 4;
+      const tip = tipAttrs(spec.labels[ci] ?? "", s.name, printed(v, spec.unit), "var(--primary)");
       parts.push(
-        `<rect x="${r2(cx)}" y="${ry}" width="${r2(cw)}" height="${ch}" rx="4" fill="${level === 0 ? "var(--muted)" : "var(--primary)"}" fill-opacity="${level === 0 ? 0.6 : HEAT_FILLS[level - 1]}" stroke="var(--border)" stroke-width="0.75"/>`,
+        `<rect x="${r2(cx)}" y="${ry}" width="${r2(cw)}" height="${ch}" rx="4" fill="${level === 0 ? "var(--muted)" : "var(--primary)"}" fill-opacity="${level === 0 ? 0.6 : HEAT_FILLS[level - 1]}" stroke="var(--border)" stroke-width="0.75"${tip}/>`,
       );
       if (spec.showValues) {
         parts.push(
@@ -794,18 +963,24 @@ function heatmapSvg(spec: ChartSpecInfo): string {
 
 // ---------------------------------------------------------------------------
 
-function seriesLegend(series: readonly ChartSeriesSpec[]): string {
-  if (series.length < 2) return "";
+function seriesLegend(series: readonly ChartSeriesSpec[], forceShow?: boolean): string {
+  if (forceShow === false) return "";
+  if (forceShow !== true && series.length < 2) return "";
   const chips = series
-    .map(
-      (s, i) =>
-        `<span class="chip"><span class="dot" style="background:${seriesColor(series, i)};opacity:${opacityOf(i)}"></span>${esc(s.name)}</span>`,
-    )
+    .map((s, i) => {
+      const col = seriesColor(series, i);
+      const dash = seriesDash(s);
+      const swatch = dash
+        ? `<span class="line-swatch" style="border-top-color:${col};opacity:${opacityOf(i)}"></span>`
+        : `<span class="dot" style="background:${col};opacity:${opacityOf(i)}"></span>`;
+      return `<span class="chip">${swatch}${esc(s.name)}</span>`;
+    })
     .join("");
   return `<div class="g-legend">${chips}</div>`;
 }
 
 function pieLegend(spec: ChartSpecInfo): string {
+  if (spec.showLegend === false) return "";
   const slices: readonly Slice[] = pieSlices(spec.labels, spec.series[0]?.values ?? [], 8);
   if (slices.length === 0) return "";
   const shares = percentages(slices.map((s) => s.value));
@@ -834,8 +1009,13 @@ export function buildChartHtml(spec: ChartSpecInfo): string {
             ? heatmapSvg(spec)
             : axisSvg(spec);
   const legend =
-    spec.type === "pie" ? pieLegend(spec) : spec.type === "funnel" || spec.type === "heatmap" ? "" : seriesLegend(spec.series);
+    spec.type === "pie"
+      ? pieLegend(spec)
+      : spec.type === "funnel" || spec.type === "heatmap"
+        ? ""
+        : seriesLegend(spec.series, spec.showLegend);
   // The title sits in HTML above the plot so it wraps and stays legible; the SVG keeps the same height.
   const title = spec.title === null ? "" : `<div class="g-title">${esc(spec.title)}</div>`;
-  return `<div class="g-chart"><style>${CHART_CSS}</style>${title}${body}${legend}</div>`;
+  const tooltip = spec.tooltip === false ? "" : `<div class="g-tip" id="g-tip" aria-hidden="true"></div><script>${TOOLTIP_SCRIPT}</script>`;
+  return `<div class="g-chart"><style>${CHART_CSS}</style>${title}${body}${legend}${tooltip}</div>`;
 }

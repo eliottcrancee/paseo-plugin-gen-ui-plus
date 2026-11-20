@@ -160,6 +160,13 @@ export const COMPONENTS = {
       { name: "unit", kind: "string", optional: true },
       { name: "stacked", kind: "boolean", optional: true },
       { name: "dashed", kind: "boolean", optional: true },
+      { name: "lineDash", kind: "any", optional: true },
+      { name: "strokeWidth", kind: "number", optional: true },
+      { name: "fillOpacity", kind: "number", optional: true },
+      { name: "pointRadius", kind: "number", optional: true },
+      { name: "showGrid", kind: "boolean", optional: true },
+      { name: "showLegend", kind: "boolean", optional: true },
+      { name: "tooltip", kind: "boolean", optional: true },
       { name: "title", kind: "string", optional: true },
       { name: "xLabel", kind: "string", optional: true },
       { name: "yLabel", kind: "string", optional: true },
@@ -170,7 +177,7 @@ export const COMPONENTS = {
       { name: "showValues", kind: "boolean", optional: true },
     ],
     summary:
-      "real axis-based charts on web/desktop (plain bars and values on mobile); series: [numbers] or {Name: [numbers] | {values, tone?, dashed?}} (never a list of records); stacked: bar and area segments; dashed: dotted strokes, on every series unless one sets its own; scatter: labels are the x values; heatmap: one series per row; bar+orientation, pie+donut, line/area+smooth, height in px (150-560); showValues prints numbers on marks (on by default for pie, funnel and heatmap); title/xLabel/yLabel label the chart and axes, yLabel defaults to unit",
+      "real axis-based SVG charts with interactive hover tooltips on web/desktop (plain bars and values on mobile); series: [numbers] or {Name: [numbers] | {values, tone?, dashed?, lineDash?, strokeWidth?, fillOpacity?, pointRadius?}} (never a list of records); lineDash: 'dashed'|'dotted'|'dashdot'|'solid'|'8 4'|[8,4]; strokeWidth (1-6), fillOpacity (0-1), pointRadius (0-8), showGrid, showLegend, tooltip (default true); stacked: bar and area segments; scatter: labels are the x values; heatmap: one series per row; bar+orientation, pie+donut, line/area+smooth, height in px (150-560); showValues prints numbers on marks; title/xLabel/yLabel label the chart and axes, yLabel defaults to unit",
   },
   Sparkline: {
     group: "Data",

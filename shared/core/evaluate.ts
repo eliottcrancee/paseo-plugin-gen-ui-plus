@@ -528,14 +528,20 @@ const Interpreter = defineClass(
           break;
         case "series": {
           const isNumbers = (item: Value) => isList(item) && item.every((n) => typeof n === "number" || n === null);
-          // {name: [numbers]} and the styled form {name: {values, tone?, dashed?}} both read.
+          const isDash = (item: Value | undefined) =>
+            item === undefined || typeof item === "string" || (isList(item) && item.every((n) => typeof n === "number"));
+          // {name: [numbers]} and the styled form {name: {values, tone?, dashed?, lineDash?, strokeWidth?, fillOpacity?, pointRadius?}} both read.
           const isEntry = (item: Value): boolean => {
             if (!isPlainObject(item)) return false;
             const entry: PlainObject = item;
             return (
               isNumbers(entry.values) &&
               (entry.tone === undefined || typeof entry.tone === "string") &&
-              (entry.dashed === undefined || typeof entry.dashed === "boolean")
+              (entry.dashed === undefined || typeof entry.dashed === "boolean") &&
+              isDash(entry.lineDash) &&
+              (entry.strokeWidth === undefined || typeof entry.strokeWidth === "number") &&
+              (entry.fillOpacity === undefined || typeof entry.fillOpacity === "number") &&
+              (entry.pointRadius === undefined || typeof entry.pointRadius === "number")
             );
           };
           if (
