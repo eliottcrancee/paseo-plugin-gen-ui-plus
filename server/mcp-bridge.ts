@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -13,7 +13,45 @@ const MAX_BODY_BYTES = 128 * 1024;
 export interface McpBridgeHandle {
   readonly url: string;
   readonly token: string;
+  readonly discoveryFile: string | null;
+  readonly stableStdioScript: string | null;
   close(): Promise<void>;
+}
+
+/**
+ * Stable per-user directory for the MCP discovery file and stdio shim so
+ * resumed sessions survive Paseo daemon restarts and plugin revision updates.
+ */
+function stableRuntimeDir(): string {
+  const paseoDir = path.join(os.homedir(), ".paseo");
+  if (existsSync(paseoDir)) return paseoDir;
+  return os.tmpdir();
+}
+
+function writeDiscoveryFile(url: string, token: string): string | null {
+  try {
+    const dir = stableRuntimeDir();
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "genui-mcp.json");
+    writeFileSync(file, JSON.stringify({ url, token, pid: process.pid }), { encoding: "utf8", mode: 0o600 });
+    return file;
+  } catch {
+    return null;
+  }
+}
+
+function syncStableStdioScript(): string | null {
+  const source = packagePath("server", "mcp-stdio.mjs");
+  if (!existsSync(source)) return null;
+  try {
+    const dir = stableRuntimeDir();
+    mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, "genui-mcp-stdio.mjs");
+    copyFileSync(source, target);
+    return target;
+  } catch {
+    return source;
+  }
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -147,10 +185,14 @@ export async function startMcpBridge(deps: McpDeps): Promise<McpBridgeHandle> {
 
   const address = server.address() as AddressInfo;
   const url = `http://127.0.0.1:${address.port}/mcp`;
+  const discoveryFile = writeDiscoveryFile(url, token);
+  const stableStdioScript = syncStableStdioScript();
 
   return {
     url,
     token,
+    discoveryFile,
+    stableStdioScript,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -240,13 +282,14 @@ export function resolveNodeExecutable(): string | null {
  * to `http` if `node` or the bridge script is unavailable.
  */
 export function buildMcpServerConfig(bridge: McpBridgeHandle, cwd?: string): McpServerConfig {
-  const stdioScript = packagePath("server", "mcp-stdio.mjs");
+  const stdioScript = bridge.stableStdioScript ?? packagePath("server", "mcp-stdio.mjs");
   const nodeBin = resolveNodeExecutable();
   if (nodeBin !== null && existsSync(stdioScript)) {
     const env: Record<string, string> = {
       GENUI_MCP_URL: bridge.url,
       GENUI_MCP_TOKEN: bridge.token,
     };
+    if (bridge.discoveryFile) env.GENUI_MCP_DISCOVERY_FILE = bridge.discoveryFile;
     if (cwd) env.GENUI_AGENT_CWD = cwd;
     return {
       type: "stdio",
