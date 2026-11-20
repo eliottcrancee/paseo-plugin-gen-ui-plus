@@ -2,6 +2,8 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import os from "node:os";
+import path from "node:path";
 import type { McpServerConfig } from "@getpaseo/protocol/agent-types";
 import { handleMcpJsonRpc, type JsonRpcRequest, type McpDeps, type McpRequestContext } from "../shared/mcp";
 import { packagePath } from "./data-source";
@@ -157,13 +159,45 @@ export async function startMcpBridge(deps: McpDeps): Promise<McpBridgeHandle> {
 }
 
 /**
+ * Finds a real `node` executable. Inside Paseo's standalone daemon binary,
+ * `process.execPath` points to `paseo` itself rather than `node`, so passing it
+ * a `.mjs` script fails with "unknown command".
+ */
+export function resolveNodeExecutable(): string | null {
+  const execBase = path.basename(process.execPath);
+  if (/^node(\.exe)?$/i.test(execBase)) {
+    return process.execPath;
+  }
+
+  const binName = process.platform === "win32" ? "node.exe" : "node";
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const home = os.homedir();
+  const candidates = [
+    ...pathDirs.map((dir) => path.join(dir, binName)),
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/node",
+    "/usr/bin/node",
+    path.join(home, ".volta", "bin", binName),
+    path.join(home, ".fnm", "current", "bin", binName),
+    path.join(home, ".asdf", "shims", binName),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
  * Builds the canonical Paseo `McpServerConfig` for an agent session.
- * Prefers `stdio` (universal across Pi pi-mcp-adapter lazy loading, OpenCode,
- * Claude Code, and Codex) and falls back to `http` if the bridge script is absent.
+ * Prefers `stdio` with a resolved `node` executable (universal across Pi
+ * pi-mcp-adapter lazy loading, OpenCode, Claude Code, and Codex) and falls back
+ * to `http` if `node` or the bridge script is unavailable.
  */
 export function buildMcpServerConfig(bridge: McpBridgeHandle, cwd?: string): McpServerConfig {
   const stdioScript = packagePath("server", "mcp-stdio.mjs");
-  if (existsSync(stdioScript)) {
+  const nodeBin = resolveNodeExecutable();
+  if (nodeBin !== null && existsSync(stdioScript)) {
     const env: Record<string, string> = {
       GENUI_MCP_URL: bridge.url,
       GENUI_MCP_TOKEN: bridge.token,
@@ -171,7 +205,7 @@ export function buildMcpServerConfig(bridge: McpBridgeHandle, cwd?: string): Mcp
     if (cwd) env.GENUI_AGENT_CWD = cwd;
     return {
       type: "stdio",
-      command: process.execPath,
+      command: nodeBin,
       args: [stdioScript],
       env,
       alwaysLoad: false,
