@@ -145,6 +145,36 @@ export const AGENT_INSTRUCTIONS_WEB_OFF = AGENT_INSTRUCTIONS.replace(MAP_EXAMPLE
 
 export const GENUI_MARKER = "[paseo-plugin-genui]";
 
+export const GENUI_MCP_SERVER_NAME = "genui";
+
+export const GENUI_MCP_TOOL_NAMES = [
+  "genui_guide",
+  "genui_list_components",
+  "genui_examples",
+  "genui_check_ui",
+] as const;
+
+export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: readonly string[] = []): string {
+  const lines = [
+    GENUI_MARKER,
+    "# Generative UI (Paseo inline UI)",
+    "This chat renders ```ui (86 interactive components) and ```app (sandboxed HTML/JS) blocks live inline. Use them in replies to the user instead of long markdown tables, pasted command output, ASCII charts/diagrams, or plain-text plans/forms; never in files, commits, PRs, or tool inputs.",
+    `Component docs and validation live in the \`${GENUI_MCP_SERVER_NAME}\` MCP server (loaded on demand so they don't bloat context):`,
+    "- `genui_guide(topic?)` — DSL syntax, `$state`, actions, `Load(...)`, charts, code-work recipes, and reliability rules.",
+    "- `genui_list_components(group?, query?)` — Discover component signatures by group (`Layout`, `Content`, `Data`, `Media`, `Inputs`, `Widgets`, `Project`, `Dev`, `Manage`, `Evidence`) or keyword.",
+    "- `genui_examples(components)` — Working gallery examples for 1–6 components.",
+    "- `genui_check_ui(spec)` — Compile, validate, and preview a ```ui block before replying so it never renders an error card.",
+    "Workflow: open your reply with one plain sentence giving the answer, look up unfamiliar components via `genui_list_components` / `genui_examples`, save command outputs to `$BB_THREAD_STORAGE` for `Load(...)`, wrap each UI in a single `Card(...)`, and call `genui_check_ui` on non-trivial blocks before sending.",
+  ];
+  if (!webLookups) {
+    lines.push(WEB_LOOKUPS_OFF);
+  }
+  if (extraFolders.length > 0) {
+    lines.push(`Load, Snippet and Image also read absolute paths under: ${extraFolders.join(", ")}.`);
+  }
+  return lines.join("\n");
+}
+
 export function buildFullInstructions(webLookups: boolean, extraFolders: readonly string[] = []): string {
   return [
     GENUI_MARKER,

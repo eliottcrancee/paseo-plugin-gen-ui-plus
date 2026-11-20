@@ -15,6 +15,7 @@ import {
 import { projectRequests, toMarkdownWithProject } from "./core/markdown";
 import { projectRequestKey, type ProjectRequest, type ProjectResult } from "./core/project";
 import type { UiNode } from "./core/types";
+import { asRecord, finiteNumber, isNode, isObject, list } from "./logic/values";
 
 type Loader = (request: DataRequest) => Promise<LoadedData>;
 type ImageFinder = (query: string) => Promise<SearchedImage | null>;
@@ -95,6 +96,116 @@ export async function renderReplyMarkdown(text: string, load: Loader, find?: Ima
   return output.join("\n");
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function lintNodes(roots: readonly UiNode[]): string[] {
+  const issues: string[] = [];
+  if (roots.length > 1) {
+    issues.push(
+      `Top-level has ${roots.length} separate nodes; wrap everything in a single Card(title, [...]) so it renders cleanly.`,
+    );
+  }
+
+  const visit = (node: UiNode): void => {
+    const props = node.props;
+    switch (node.type) {
+      case "Tabs": {
+        const labels = list(props.labels);
+        const children = list(props.children).filter(isNode);
+        if (labels.length === 0) {
+          issues.push("Tabs: labels list is empty.");
+        } else if (labels.length !== children.length) {
+          issues.push(
+            `Tabs: ${labels.length} label(s) but ${children.length} child panel(s); provide one child per tab label.`,
+          );
+        }
+        break;
+      }
+      case "Chart": {
+        const labels = list(props.labels);
+        const type = typeof props.type === "string" ? props.type : "bar";
+        if (labels.length === 0) {
+          issues.push("Chart: labels list is empty.");
+        }
+        if (type === "radar" && labels.length < 3) {
+          issues.push(`Chart("radar"): needs at least 3 labels (got ${labels.length}).`);
+        }
+        const rawSeries = props.series;
+        if (Array.isArray(rawSeries)) {
+          if (rawSeries.length === 0) {
+            issues.push("Chart: series is empty.");
+          } else if (labels.length > 0 && rawSeries.length !== labels.length && type !== "scatter") {
+            issues.push(
+              `Chart: ${labels.length} label(s) but series has ${rawSeries.length} value(s); match lengths.`,
+            );
+          }
+        } else if (isObject(rawSeries)) {
+          const entries = Object.entries(rawSeries);
+          if (entries.length === 0) {
+            issues.push("Chart: series object has no entries.");
+          }
+          for (const [name, entry] of entries) {
+            const entryRec = asRecord(entry);
+            const vals = Array.isArray(entry)
+              ? entry
+              : entryRec !== null && Array.isArray(entryRec.values)
+                ? entryRec.values
+                : null;
+            if (vals === null) {
+              issues.push(`Chart: series "${name}" must be a list of numbers or {values: [numbers], tone?, dashed?}.`);
+            } else if (labels.length > 0 && vals.length !== labels.length && type !== "scatter") {
+              issues.push(
+                `Chart: series "${name}" has ${vals.length} value(s) for ${labels.length} label(s); match lengths.`,
+              );
+            }
+          }
+        }
+        break;
+      }
+      case "Table": {
+        if (list(props.columns).length === 0) {
+          issues.push("Table: columns list is empty.");
+        }
+        break;
+      }
+      case "Gauge": {
+        const min = finiteNumber(props.min);
+        const max = finiteNumber(props.max);
+        if (min !== null && max !== null && min >= max) {
+          issues.push(`Gauge: min (${min}) must be less than max (${max}).`);
+        }
+        break;
+      }
+      case "Calendar": {
+        for (const item of list(props.events)) {
+          const rec = asRecord(item);
+          const date = rec && typeof rec.date === "string" ? rec.date : null;
+          if (date !== null && !ISO_DATE.test(date)) {
+            issues.push(`Calendar: event date "${date}" should be YYYY-MM-DD.`);
+            break;
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+
+    for (const value of Object.values(props)) {
+      if (isNode(value)) {
+        visit(value);
+      } else if (Array.isArray(value)) {
+        for (const item of value) {
+          if (isNode(item)) visit(item);
+        }
+      }
+    }
+  };
+
+  for (const root of roots) visit(root);
+  return issues;
+}
+
 export async function checkSpec(
   spec: string,
   load: Loader,
@@ -109,9 +220,11 @@ export async function checkSpec(
   const loaded = await Promise.all(requests.map(async (request) => [request, await load(request)] as const));
   const data = new Map(loaded.map(([request, result]) => [dataKey(request), result] as const));
   const { roots, diagnostics } = evaluate(compiled.program, initialState(compiled.program, data), data);
+  const lintIssues = lintNodes(roots);
   const problems = [
     ...loaded.flatMap(([request, result]) => (result.ok ? [] : [`${request.path}: ${result.error}`])),
     ...(diagnostics.length > 0 ? [formatDiagnostics(diagnostics)] : []),
+    ...lintIssues,
   ];
   const preview = `Text version of what the user will see:\n\n${await rootsMarkdown(roots, find, project)}`;
   return problems.length === 0

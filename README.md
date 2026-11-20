@@ -71,6 +71,17 @@ Chart("area", ["8h", "10h", "12h"], {
 
 The eight types are `bar`, `line`, `area`, `pie`, `scatter`, `radar`, `funnel` and `heatmap`. Options: `stacked` (bar and area), `dashed` (all series; a series' own `dashed` wins), `orientation: "horizontal"` (bar), `donut` (pie), `smooth` (line and area), `showValues` (numbers on the marks, on by default for pie, funnel and heatmap), `height` in pixels (150–560), `title`, `xLabel` and `yLabel` (which defaults to `unit`). Colors come from your theme; there is no palette to configure. On mobile, where the sandboxed iframe is unavailable, the same chart falls back to plain bars, funnels and value rows.
 
+## How agents learn the UI (MCP + Skill)
+
+By default, new agents receive only a **compact skill prompt (~250 tokens)** instead of the full 86-component reference, plus an attached **`genui` MCP server** (`stdio` bridge over a localhost-only token-authenticated daemon endpoint) with 4 preapproved read-only tools:
+
+- `genui_guide(topic?)` — DSL syntax, `$state`, actions, `Load(...)`, charts, code-work recipes, and reliability rules.
+- `genui_list_components(group?, query?)` — Discover component signatures by group or keyword.
+- `genui_examples(components)` — Fetch live gallery examples (with sample data previews) for 1–6 components.
+- `genui_check_ui(spec)` — Compile, lint, and preview a ```` ```ui ```` block before replying so it never renders an error card.
+
+In harnesses with dynamic MCP loading (such as **Pi** with `pi-mcp-adapter`), the MCP server stays unloaded until the agent actually needs Gen-UI, keeping initial context minimal. In harnesses that load MCP tools eagerly (such as OpenCode), all 4 tools are available immediately. You can switch back to the full inline system prompt anytime in **Settings -> Plugins -> Generative UI**.
+
 ## Slash commands & surfaces
 
 - `/genui [prompt]` — Teach an existing agent the Generative UI component language.

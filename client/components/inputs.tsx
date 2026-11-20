@@ -62,6 +62,7 @@ function FieldLabel({ label, value }: { label: string | null; value?: string }) 
 
 export function Slider({ props }: { props: Props }) {
   const { theme, setValue } = useUiRuntime();
+  const [trackWidth, setTrackWidth] = useState(200);
   const binding = isBinding(props.value) ? props.value : null;
   if (!binding) return <ErrorLine message="Slider expects a $state binding" />;
   const min = finiteNumber(props.min) ?? 0;
@@ -100,6 +101,10 @@ export function Slider({ props }: { props: Props }) {
           <Text style={{ color: theme.colors.foreground, fontSize: 14 }}>−</Text>
         </Pressable>
         <Pressable
+          onLayout={(e) => {
+            const w = e.nativeEvent.layout.width;
+            if (w > 0 && w !== trackWidth) setTrackWidth(w);
+          }}
           style={{
             flex: 1,
             height: 10,
@@ -109,8 +114,8 @@ export function Slider({ props }: { props: Props }) {
           }}
           onPress={(e) => {
             const locX = (e.nativeEvent as { locationX?: number }).locationX;
-            if (typeof locX === "number" && locX >= 0) {
-              const ratio = Math.min(1, Math.max(0, locX / 200));
+            if (typeof locX === "number" && locX >= 0 && trackWidth > 0) {
+              const ratio = Math.min(1, Math.max(0, locX / trackWidth));
               const next = Math.round(((min + ratio * span) - min) / step) * step + min;
               setValue(binding.name, Math.min(max, Math.max(min, Number(next.toFixed(6)))));
             }

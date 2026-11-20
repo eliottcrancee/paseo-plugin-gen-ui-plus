@@ -407,7 +407,7 @@ export function SpecBlockView({
   const readText = useTextLoader(scope);
   const loadAudio = useAudioLoader(scope);
 
-  if (!shown?.program) {
+  if (!shown?.program || (complete && !result.complete && result.diagnostics.some((d) => d.severity === "error"))) {
     if (!complete) {
       return (
         <View
@@ -454,7 +454,7 @@ export function SpecBlockView({
   return (
     <LiveUi
       program={shown.program}
-      compileDiagnostics={result.complete ? result.diagnostics : []}
+      compileDiagnostics={complete || result.complete ? result.diagnostics : []}
       source={code}
       stateKey={stateKey}
       data={data}

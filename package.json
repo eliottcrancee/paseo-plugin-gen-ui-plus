@@ -23,6 +23,7 @@
     "paseo-plugin.json",
     "OVERVIEW.md",
     "README.md",
+    "SKILL.md",
     "LICENSE",
     "index.client.ts",
     "index.client.tsx",

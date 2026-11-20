@@ -32,10 +32,19 @@ export function GenUiSettingsScreen({ theme }: PluginSurfaceProps) {
         <SettingsCard>
           <SettingsSwitch
             label="Automatically teach new agents Generative UI"
-            hint="Appends the 86-component ```ui and ```app reference to new agents' system prompt on creation."
+            hint="Enables inline ```ui and ```app support for new agents on creation."
             value={values.autoInstructions}
             onValueChange={(autoInstructions) => {
               void save({ ...values, autoInstructions }, revision);
+            }}
+          />
+          <SettingsSwitch
+            label="Load component docs via MCP (recommended)"
+            hint="Injects only a compact skill (~250 tokens) and attaches the `genui` MCP server (`genui_guide`, `genui_list_components`, `genui_examples`, `genui_check_ui`) so harnesses like Pi + pi-mcp-adapter load tools dynamically without bloating context. Turn off to inject the full 86-component reference into every system prompt."
+            value={values.instructionMode === "mcp"}
+            disabled={!values.autoInstructions}
+            onValueChange={(useMcp) => {
+              void save({ ...values, instructionMode: useMcp ? "mcp" : "full" }, revision);
             }}
           />
         </SettingsCard>

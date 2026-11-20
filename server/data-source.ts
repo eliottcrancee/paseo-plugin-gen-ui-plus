@@ -184,15 +184,15 @@ function tempAttempts(target: string): Attempt[] {
   ];
 }
 
-async function readAgentFile(
-  paseo: PaseoApi,
-  agentId: string,
+async function readScopedFile(
+  workspaceCwd: string | null,
+  storageRoot: string | null,
   requested: string,
   maxBytes: number,
 ): Promise<FileContent> {
-  const storageRoot = agentStorageDir(agentId);
-  await mkdir(storageRoot, { recursive: true }).catch(() => undefined);
-  const workspaceCwd = await resolveAgentCwd(paseo, agentId);
+  if (storageRoot !== null) {
+    await mkdir(storageRoot, { recursive: true }).catch(() => undefined);
+  }
 
   const inside = (root: string | null, target: string): Attempt[] =>
     root !== null && contains(root, target) ? [{ root, target }] : [];
@@ -200,10 +200,10 @@ async function readAgentFile(
   let attempts: Attempt[];
   if (requested.startsWith(BB_STORAGE_PREFIX)) {
     const rel = requested.slice(BB_STORAGE_PREFIX.length);
-    attempts = inside(storageRoot, path.resolve(storageRoot, rel));
+    attempts = storageRoot !== null ? inside(storageRoot, path.resolve(storageRoot, rel)) : [];
   } else if (requested.startsWith(PASEO_STORAGE_PREFIX)) {
     const rel = requested.slice(PASEO_STORAGE_PREFIX.length);
-    attempts = inside(storageRoot, path.resolve(storageRoot, rel));
+    attempts = storageRoot !== null ? inside(storageRoot, path.resolve(storageRoot, rel)) : [];
   } else if (path.isAbsolute(expandHome(requested))) {
     const target = path.resolve(expandHome(requested));
     attempts = [...inside(storageRoot, target), ...inside(workspaceCwd, target)].slice(0, 1);
@@ -212,7 +212,7 @@ async function readAgentFile(
   } else {
     attempts = [
       ...inside(workspaceCwd, workspaceCwd !== null ? path.resolve(workspaceCwd, requested) : ""),
-      ...inside(storageRoot, path.resolve(storageRoot, requested)),
+      ...inside(storageRoot, storageRoot !== null ? path.resolve(storageRoot, requested) : ""),
     ];
   }
 
@@ -228,6 +228,26 @@ async function readAgentFile(
     firstFailure ??= { ok: false, error: result.error };
   }
   return firstFailure!;
+}
+
+async function readAgentFile(
+  paseo: PaseoApi,
+  agentId: string,
+  requested: string,
+  maxBytes: number,
+): Promise<FileContent> {
+  const storageRoot = agentStorageDir(agentId);
+  const workspaceCwd = await resolveAgentCwd(paseo, agentId);
+  return readScopedFile(workspaceCwd, storageRoot, requested, maxBytes);
+}
+
+export function loadScopedFile(
+  workspaceCwd: string | null,
+  storageRoot: string | null,
+  requested: string,
+  { raw = false }: { raw?: boolean } = {},
+): Promise<LoadedData> {
+  return loadWith((target, maxBytes) => readScopedFile(workspaceCwd, storageRoot, target, maxBytes), requested, raw);
 }
 
 async function loadWith(read: FileReader, requested: string, raw: boolean): Promise<LoadedData> {

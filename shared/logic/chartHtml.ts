@@ -148,12 +148,18 @@ interface Frame {
   readonly plotH: number;
 }
 
-function axisFrame(spec: ChartSpecInfo): Frame {
+function labelsRotate(labels: readonly string[]): boolean {
+  return labels.length > 8 || labels.some((l) => l.length > 8);
+}
+
+function axisFrame(spec: ChartSpecInfo, overrides?: { left?: number; right?: number; rotateX?: boolean }): Frame {
   const height = chartHeight(spec);
   const top = 12;
-  const bottom = 34 + (spec.xLabel !== null ? 20 : 0);
-  const left = 50 + (spec.yLabel !== null ? 14 : 0);
-  return { height, top, left, plotW: WIDTH - left - 16, plotH: height - top - bottom };
+  const rotateX = overrides?.rotateX ?? (spec.type !== "scatter" && labelsRotate(spec.labels));
+  const bottom = (rotateX ? 60 : 34) + (spec.xLabel !== null ? 20 : 0);
+  const left = overrides?.left ?? 50 + (spec.yLabel !== null ? 14 : 0);
+  const right = overrides?.right ?? 16;
+  return { height, top, left, plotW: Math.max(120, WIDTH - left - right), plotH: Math.max(60, height - top - bottom) };
 }
 
 function y(v: number, scale: Scale, f: Frame): number {
@@ -188,7 +194,7 @@ function xLabelSvg(spec: ChartSpecInfo, f: Frame): string {
 
 /** Value labels under the plot, rotated when there are many or long ones. */
 function xTicksSvg(positions: readonly number[], labels: readonly string[], f: Frame): string {
-  const rotate = labels.length > 8 || labels.some((l) => l.length > 8);
+  const rotate = labelsRotate(labels);
   const baseline = f.top + f.plotH;
   return labels
     .map((l, i) => {
@@ -429,18 +435,34 @@ function bandFill(
 
 /** Bar with horizontal rows: labels left, value axis along the bottom. */
 function hbarSvg(spec: ChartSpecInfo): string {
-  const f = axisFrame(spec);
   const count = spec.labels.length;
   if (count === 0) return noDataSvg(spec);
+  const stacked = spec.stacked && spec.series.length > 1;
+  const maxLabelLen = Math.min(20, Math.max(0, ...spec.labels.map((l) => l.length)));
+  const left = Math.max(64, Math.min(168, Math.round(maxLabelLen * 6.8 + 18))) + (spec.yLabel !== null ? 14 : 0);
+  const right = spec.showValues && !stacked ? 68 : 16;
+  const f = axisFrame(spec, { left, right, rotateX: false });
   const rowsH = f.plotH / count;
-  const scale = scaleFor(
-    spec.series.flatMap((s) => s.values).filter((v): v is number => v !== null),
-    true,
-  );
+  const grid = stacked ? stackSeries(spec.series.map((s) => s.values)) : null;
+  const scale = (() => {
+    if (!grid) {
+      return scaleFor(
+        spec.series.flatMap((s) => s.values).filter((v): v is number => v !== null),
+        true,
+      );
+    }
+    const stackExtremes: number[] = [0];
+    for (let i = 0; i < count; i++) {
+      for (let si = 0; si < spec.series.length; si++) {
+        const seg: Segment | null = grid[si]?.[i] ?? null;
+        if (!seg) continue;
+        stackExtremes.push(seg.from, seg.to);
+      }
+    }
+    return scaleFor(stackExtremes, true);
+  })();
   const zeroX = f.left + ((0 - scale.min) / (scale.max - scale.min)) * f.plotW;
   const xpx = (v: number) => f.left + ((v - scale.min) / (scale.max - scale.min)) * f.plotW;
-  const stacked = spec.stacked && spec.series.length > 1;
-  const grid = stacked ? stackSeries(spec.series.map((s) => s.values)) : null;
 
   const parts: string[] = [];
   for (const t of scale.ticks) {

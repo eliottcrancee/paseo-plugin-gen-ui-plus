@@ -37,13 +37,19 @@ export function Table({ props }: { props: Props }) {
   const { theme, compact } = useUiRuntime();
   const columns = list(props.columns).map((col) => {
     const rec = asRecord(col);
-    return rec ? text(rec.label ?? rec.key) : text(col);
+    if (rec) {
+      const label = text(rec.label ?? rec.key);
+      const key = text(rec.key ?? rec.label);
+      return { key, label };
+    }
+    const label = text(col);
+    return { key: label, label };
   });
   const rows = list(props.rows);
 
   return (
     <InTableContext.Provider value={true}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={!compact}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={!compact} contentContainerStyle={{ flexGrow: 1 }}>
         <View
           style={{
             borderRadius: 8,
@@ -63,11 +69,11 @@ export function Table({ props }: { props: Props }) {
           >
             {columns.map((col, idx) => (
               <View
-                key={`${col}:${idx}`}
+                key={`${col.key}:${idx}`}
                 style={{ flex: 1, minWidth: 110, paddingHorizontal: 10, paddingVertical: 8 }}
               >
                 <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, fontWeight: "600" }}>
-                  {col}
+                  {col.label}
                 </Text>
               </View>
             ))}
@@ -77,7 +83,7 @@ export function Table({ props }: { props: Props }) {
             const cells = Array.isArray(row)
               ? row
               : rec
-                ? columns.map((c) => rec[c] ?? null)
+                ? columns.map((c) => rec[c.key] ?? rec[c.label] ?? null)
                 : [row];
             return (
               <View
@@ -148,8 +154,8 @@ function parseChartSeries(raw: unknown): ParsedSeries[] {
         return {
           name,
           values: entry.values.map((v) => finiteNumber(v)),
-          tone: tone(entry.tone as never),
-          dashed: entry.dashed === true,
+          tone: entry.tone !== undefined ? tone(entry.tone as never) : wheelTone(idx),
+          dashed: typeof entry.dashed === "boolean" ? entry.dashed : undefined,
         };
       }
       return { name, values: [], tone: wheelTone(idx) };
@@ -203,6 +209,10 @@ function ChartSandbox({ spec }: { spec: ChartSpecInfo }) {
   const [height, setHeight] = useState(spec.height);
   const [error, setError] = useState<string | null>(null);
   const html = useMemo(() => buildChartHtml(spec), [spec]);
+  useEffect(() => {
+    setHeight(spec.height);
+  }, [spec.height]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     setError(null);

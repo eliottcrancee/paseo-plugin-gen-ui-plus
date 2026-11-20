@@ -7,6 +7,7 @@ export const genuiSettings = defineSettings({
   version: 1,
   schema: z.object({
     autoInstructions: z.boolean().default(true),
+    instructionMode: z.enum(["mcp", "full"]).default("mcp"),
     webLookups: z.boolean().default(true),
     extraFolders: z.string().default(""),
   }),

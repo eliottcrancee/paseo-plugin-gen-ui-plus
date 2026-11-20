@@ -112,10 +112,11 @@ export function Tabs({ props }: { props: Props }) {
 
   return (
     <View style={{ gap: 10 }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
         <View
           style={{
             flexDirection: "row",
+            flexGrow: 1,
             gap: 4,
             borderBottomWidth: StyleSheet.hairlineWidth,
             borderBottomColor: theme.colors.border,

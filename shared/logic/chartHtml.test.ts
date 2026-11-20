@@ -157,4 +157,37 @@ describe("chart html", () => {
     expect(wheelTone(5)).toBe(wheelTone(0));
     expect(wheelTone(-1)).toBe(wheelTone(4));
   });
+
+  it("scales stacked horizontal bars by their sum so bars stay inside the viewBox", () => {
+    const html = buildChartHtml(
+      spec({
+        orientation: "horizontal",
+        stacked: true,
+        labels: ["Authentication", "Database Queries"],
+        series: [line("Read", [60, 40]), line("Write", [60, 80])],
+      }),
+    );
+    const rects = [...html.matchAll(/<rect x="([\d.]+)"[^>]*width="([\d.]+)"/g)];
+    expect(rects).toHaveLength(4);
+    for (const m of rects) {
+      const rightEdge = Number(m[1]) + Number(m[2]);
+      expect(rightEdge).toBeLessThanOrEqual(720);
+    }
+    // Long labels get a wider left margin so they aren't clipped at x=0.
+    const labelXs = [...html.matchAll(/<text x="([\d.]+)" y="[\d.]+" text-anchor="end" font-size="11.5"/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(labelXs[0]!).toBeGreaterThan(100);
+  });
+
+  it("reserves extra bottom space when x-axis labels rotate", () => {
+    const rotated = buildChartHtml(
+      spec({ labels: ["VeryLongCategoryA", "VeryLongCategoryB", "VeryLongCategoryC"], series: [line("A", [1, 2, 3])] }),
+    );
+    const short = buildChartHtml(spec({ labels: ["A", "B", "C"], series: [line("A", [1, 2, 3])] }));
+    const rotatedBaseY = Number(/translate\([\d.]+,([\d.]+)\) rotate\(-30\)/.exec(rotated)?.[1] ?? 0);
+    const shortBaseY = Number(/y="([\d.]+)" text-anchor="middle" font-size="10.5"/.exec(short)?.[1] ?? 0);
+    expect(rotatedBaseY).toBeGreaterThan(0);
+    expect(rotatedBaseY).toBeLessThan(shortBaseY);
+  });
 });

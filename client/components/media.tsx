@@ -11,7 +11,7 @@ import { useUiRuntime, type ImageUrl } from "../runtime";
 import { LoadedImageView } from "./content";
 import { ImageLightbox } from "./image-lightbox";
 
-export function ImageSearch({ props }: { props: Props }) {
+export function ImageSearch({ props, zoomable = true }: { props: Props; zoomable?: boolean }) {
   const { theme } = useUiRuntime();
   const query = text(props.query);
   const alt = optionalText(props.alt) ?? query;
@@ -55,7 +55,7 @@ export function ImageSearch({ props }: { props: Props }) {
 
   return (
     <View style={{ gap: 4 }}>
-      <LoadedImageView src={found.image.url} alt={alt} height={height} />
+      <LoadedImageView src={found.image.url} alt={alt} height={height} zoomable={zoomable} />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         <ExternalLink href={found.image.sourceUrl}>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
@@ -148,7 +148,7 @@ export function Gallery({ props }: { props: Props }) {
               }}
             >
               {item.query ? (
-                <ImageSearch props={{ query: item.query, alt: item.caption ?? item.query }} />
+                <ImageSearch props={{ query: item.query, alt: item.caption ?? item.query }} zoomable={false} />
               ) : item.src ? (
                 <LoadedImageView src={item.src} alt={item.caption} height={150} zoomable={false} />
               ) : null}

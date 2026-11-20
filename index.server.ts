@@ -1,7 +1,13 @@
 import { mkdir } from "node:fs/promises";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { checkSpec, renderReplyMarkdown } from "./shared/fallback";
-import { buildFullInstructions, GENUI_MARKER } from "./shared/instructions";
+import {
+  buildFullInstructions,
+  buildMcpSkillInstructions,
+  GENUI_MARKER,
+  GENUI_MCP_SERVER_NAME,
+  GENUI_MCP_TOOL_NAMES,
+} from "./shared/instructions";
 import {
   appendDemoRpc,
   checkUiRpc,
@@ -40,10 +46,12 @@ import {
   loadGalleryAudio,
   loadGalleryFile,
   loadGalleryImage,
+  loadScopedFile,
   readGallerySpec,
   setExtraLoadFolders,
   sketchFontDataUrl,
 } from "./server/data-source";
+import { buildMcpServerConfig, startMcpBridge, type McpBridgeHandle } from "./server/mcp-bridge";
 import {
   createProjectReader,
   readProjectChanges,
@@ -68,16 +76,19 @@ Card("Estimate", [
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(genuiSettings);
   let webLookupsEnabled = true;
+  let extraFoldersList: string[] = [];
 
   void settings.read().then((state) => {
     if (state.status !== "ready") return;
     webLookupsEnabled = state.values.webLookups;
-    setExtraLoadFolders(parseFolders(state.values.extraFolders));
+    extraFoldersList = parseFolders(state.values.extraFolders);
+    setExtraLoadFolders(extraFoldersList);
   });
   const unsubscribeSettings = settings.subscribe((state) => {
     if (state.status !== "ready") return;
     webLookupsEnabled = state.values.webLookups;
-    setExtraLoadFolders(parseFolders(state.values.extraFolders));
+    extraFoldersList = parseFolders(state.values.extraFolders);
+    setExtraLoadFolders(extraFoldersList);
   });
 
   const web = createWebLookups(
@@ -93,12 +104,90 @@ export default function contribute(server: PluginServerContext) {
     return found.ok ? found.image : null;
   };
 
+  let bridgePromise: Promise<McpBridgeHandle> | null = null;
+  const ensureMcpBridge = (): Promise<McpBridgeHandle> => {
+    bridgePromise ??= startMcpBridge({
+      webLookups: () => webLookupsEnabled,
+      extraFolders: () => extraFoldersList,
+      examples: (components) => examplesReport(components),
+      checkUi: (spec, ctx) =>
+        checkSpec(
+          spec,
+          (req) => loadScopedFile(ctx.cwd ?? null, ctx.storageDir ?? null, req.path, req),
+          findImage,
+        ),
+    }).catch((err) => {
+      bridgePromise = null;
+      throw err;
+    });
+    return bridgePromise;
+  };
+
   server.before("agent.create", async ({ request }) => {
+    if (request.config.internal) return;
     const current = await settings.read();
     if (current.status === "ready" && !current.values.autoInstructions) return;
     const webOn = current.status === "ready" ? current.values.webLookups : true;
     const extraFolders = current.status === "ready" ? parseFolders(current.values.extraFolders) : [];
+    const mode = current.status === "ready" ? current.values.instructionMode : "mcp";
     const existing = request.config.systemPrompt ?? "";
+
+    if (mode === "mcp") {
+      const nextSystemPrompt = existing.includes(GENUI_MARKER)
+        ? existing
+        : [existing, buildMcpSkillInstructions(webOn, extraFolders)].filter(Boolean).join("\n\n");
+
+      let nextMcpServers = request.config.mcpServers;
+      let nextToolPolicy = request.config.toolPolicy;
+
+      if (!request.config.mcpServers?.[GENUI_MCP_SERVER_NAME]) {
+        try {
+          const bridge = await ensureMcpBridge();
+          nextMcpServers = {
+            ...request.config.mcpServers,
+            [GENUI_MCP_SERVER_NAME]: buildMcpServerConfig(bridge, request.config.cwd),
+          };
+          const existingPreapproved = request.config.toolPolicy?.preapproved ?? [];
+          const addedPreapproved = GENUI_MCP_TOOL_NAMES.filter(
+            (tool) =>
+              !existingPreapproved.some(
+                (ref) => ref.kind === "mcp" && ref.server === GENUI_MCP_SERVER_NAME && ref.tool === tool,
+              ),
+          ).map((tool) => ({
+            kind: "mcp" as const,
+            server: GENUI_MCP_SERVER_NAME,
+            tool,
+          }));
+          nextToolPolicy = {
+            ...request.config.toolPolicy,
+            preapproved: [...existingPreapproved, ...addedPreapproved],
+          };
+        } catch {
+          // If the local MCP bridge cannot bind (e.g. restricted environment), fall back to full inline instructions.
+          const fallbackPrompt = existing.includes(GENUI_MARKER)
+            ? existing
+            : [existing, buildFullInstructions(webOn, extraFolders)].filter(Boolean).join("\n\n");
+          return {
+            ...request,
+            config: {
+              ...request.config,
+              systemPrompt: fallbackPrompt,
+            },
+          };
+        }
+      }
+
+      return {
+        ...request,
+        config: {
+          ...request.config,
+          systemPrompt: nextSystemPrompt,
+          ...(nextMcpServers ? { mcpServers: nextMcpServers } : {}),
+          ...(nextToolPolicy ? { toolPolicy: nextToolPolicy } : {}),
+        },
+      };
+    }
+
     if (existing.includes(GENUI_MARKER)) return;
     return {
       ...request,
@@ -218,5 +307,9 @@ export default function contribute(server: PluginServerContext) {
 
   return () => {
     unsubscribeSettings();
+    if (bridgePromise !== null) {
+      void bridgePromise.then((bridge) => bridge.close()).catch(() => undefined);
+      bridgePromise = null;
+    }
   };
 }
