@@ -173,9 +173,8 @@ function nvmNodeCandidates(home: string, binName: string): string[] {
 /**
  * Finds a JS runtime (`node` or `bun`) that can execute `server/mcp-stdio.mjs`.
  * - Pure npm/Node or Bun Paseo daemon: `process.execPath` is already `node`/`bun`.
- * - Paseo desktop app / standalone binary (macOS & Linux): `process.execPath` points
- *   to `paseo` itself, so we search `PATH` and standard macOS/Linux install locations
- *   (system, Homebrew, Linuxbrew, nvm, volta, fnm, mise, asdf).
+ * - Paseo desktop app / standalone binary (macOS, Linux & Windows): `process.execPath`
+ *   points to `paseo` itself, so we search `PATH` and standard OS install locations.
  * - If none is found, `buildMcpServerConfig` falls back to `type: "http"` directly.
  */
 export function resolveNodeExecutable(): string | null {
@@ -184,23 +183,48 @@ export function resolveNodeExecutable(): string | null {
     return process.execPath;
   }
 
-  const binName = process.platform === "win32" ? "node.exe" : "node";
-  const bunName = process.platform === "win32" ? "bun.exe" : "bun";
-  const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const isWin = process.platform === "win32";
+  const binName = isWin ? "node.exe" : "node";
+  const bunName = isWin ? "bun.exe" : "bun";
+  const pathEnv = process.env.PATH ?? process.env.Path ?? "";
+  const pathDirs = pathEnv.split(path.delimiter).filter(Boolean);
   const home = os.homedir();
+
+  const platformCandidates: string[] = isWin
+    ? [
+        path.join(process.env.ProgramFiles ?? "C:\\Program Files", "nodejs", binName),
+        ...(process.env["ProgramFiles(x86)"]
+          ? [path.join(process.env["ProgramFiles(x86)"], "nodejs", binName)]
+          : []),
+        ...(process.env.NVM_SYMLINK ? [path.join(process.env.NVM_SYMLINK, binName)] : []),
+        ...(process.env.LOCALAPPDATA
+          ? [
+              path.join(process.env.LOCALAPPDATA, "Programs", "nodejs", binName),
+              path.join(process.env.LOCALAPPDATA, "Volta", "bin", binName),
+              path.join(process.env.LOCALAPPDATA, "mise", "shims", binName),
+            ]
+          : []),
+        path.join(home, "scoop", "shims", binName),
+        path.join(home, ".volta", "bin", binName),
+        path.join(home, ".bun", "bin", bunName),
+      ]
+    : [
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+        "/home/linuxbrew/.linuxbrew/bin/node",
+        path.join(home, ".volta", "bin", binName),
+        path.join(home, ".fnm", "current", "bin", binName),
+        path.join(home, ".local", "share", "mise", "shims", binName),
+        path.join(home, ".asdf", "shims", binName),
+        ...nvmNodeCandidates(home, binName),
+        path.join(home, ".bun", "bin", bunName),
+      ];
+
   const candidates = [
     ...pathDirs.map((dir) => path.join(dir, binName)),
-    "/opt/homebrew/bin/node",
-    "/usr/local/bin/node",
-    "/usr/bin/node",
-    "/home/linuxbrew/.linuxbrew/bin/node",
-    path.join(home, ".volta", "bin", binName),
-    path.join(home, ".fnm", "current", "bin", binName),
-    path.join(home, ".local", "share", "mise", "shims", binName),
-    path.join(home, ".asdf", "shims", binName),
-    ...nvmNodeCandidates(home, binName),
+    ...platformCandidates,
     ...pathDirs.map((dir) => path.join(dir, bunName)),
-    path.join(home, ".bun", "bin", bunName),
   ];
 
   for (const candidate of candidates) {
