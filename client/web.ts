@@ -100,8 +100,8 @@ const BOOTSTRAP = `(function(){
 var host=window.parent,last=-1;
 function post(m){m.source="genui-app";host.postMessage(m,"*");}
 function measure(){
-var b=document.body,h=Math.ceil(Math.max(document.documentElement.getBoundingClientRect().height,b?b.scrollHeight:0));
-if(h!==last){last=h;post({type:"height",height:h});}
+var b=document.body,h=Math.ceil(b?b.getBoundingClientRect().height:document.documentElement.getBoundingClientRect().height);
+if(h>0&&h!==last){last=h;post({type:"height",height:h});}
 }
 var ro=new ResizeObserver(measure);
 ro.observe(document.documentElement);
@@ -154,6 +154,7 @@ export function createSandboxedIframeController(
   hostRef: unknown,
   options: {
     height: number;
+    minHeight?: number;
     onHeight(height: number): void;
     onError(message: string): void;
   },
@@ -189,7 +190,8 @@ export function createSandboxedIframeController(
     const data = event.data as Record<string, unknown>;
     if (data.source !== "genui-app") return;
     if (data.type === "height" && typeof data.height === "number" && Number.isFinite(data.height)) {
-      const clamped = Math.min(1400, Math.max(80, Math.ceil(data.height)));
+      const floor = options.minHeight ?? 80;
+      const clamped = Math.min(1400, Math.max(floor, Math.ceil(data.height)));
       iframe.style.height = `${clamped}px`;
       options.onHeight(clamped);
     } else if (data.type === "error" && typeof data.message === "string") {

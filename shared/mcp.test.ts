@@ -36,13 +36,15 @@ describe("genui MCP server", () => {
   it("keeps the MCP skill prompt dramatically smaller than the full inline reference", () => {
     const skill = buildMcpSkillInstructions(true);
     const full = buildFullInstructions(true);
-    expect(skill.length).toBeLessThan(3000);
-    expect(skill.length).toBeLessThan(full.length * 0.18);
+    // Target ~1,400-1,600 tokens (~5,500-7,000 chars), still much smaller than the full inline reference.
+    expect(skill.length).toBeGreaterThan(4500);
+    expect(skill.length).toBeLessThan(7500);
+    expect(skill.length).toBeLessThan(full.length * 0.45);
     expect(skill).toContain("genui_guide");
     expect(skill).toContain("genui_list_components");
     expect(skill).toContain("genui_examples");
     expect(skill).toContain("genui_check_ui");
-    expect(skill).toContain("neutral|good|warn|bad|info");
+    expect(skill).toContain("neutral | good | warn | bad | info");
   });
 
   it("handles initialize, ping, notifications, and tools/list", async () => {

@@ -19,15 +19,16 @@ export function MathFormula({
   const webSupported = canRenderWebIframe();
   const containerRef = useRef<View | null>(null);
   const controllerRef = useRef<SandboxedIframeController | null>(null);
-  const [height, setHeight] = useState(display ? 56 : 30);
+  const [height, setHeight] = useState(display ? 38 : 26);
   const html = useMemo(() => buildMathHtml(latex, display), [latex, display]);
   const themeKey = themeVarsKey(theme);
 
   useEffect(() => {
     if (!webSupported || !containerRef.current) return;
     const ctrl = createSandboxedIframeController(containerRef.current, {
-      height: display ? 56 : 30,
-      onHeight: (h) => setHeight(Math.max(28, h)),
+      height: display ? 38 : 26,
+      minHeight: 22,
+      onHeight: (h) => setHeight(Math.max(22, h)),
       onError: () => {},
     });
     controllerRef.current = ctrl;
