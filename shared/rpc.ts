@@ -407,7 +407,7 @@ export const pluginUpdateCheckRpc = defineRpc({
 
 export const mcpOAuthStatusEntrySchema = z.object({
   url: z.string(),
-  status: z.enum(["connected", "expired", "pending", "none"]),
+  status: z.enum(["connected", "expired", "pending", "public", "none"]),
   expiresAt: z.number().optional(),
   hasRefreshToken: z.boolean().optional(),
   lastError: z.string().optional(),
@@ -419,6 +419,7 @@ export const mcpOAuthStatusRpc = defineRpc({
   name: "genui.mcp_oauth_status",
   input: z.object({
     urls: z.array(z.string().min(1).max(2048)).max(64),
+    probePublic: z.boolean().optional(),
   }),
   output: z.object({
     statuses: z.record(z.string(), mcpOAuthStatusEntrySchema),
@@ -432,7 +433,7 @@ export const mcpOAuthStartRpc = defineRpc({
     url: z.string().min(1).max(2048),
   }),
   output: z.discriminatedUnion("ok", [
-    z.object({ ok: z.literal(true), authUrl: z.string() }),
+    z.object({ ok: z.literal(true), authUrl: z.string().optional(), noAuthRequired: z.boolean().optional() }),
     z.object({ ok: z.literal(false), error: z.string() }),
   ]),
 });

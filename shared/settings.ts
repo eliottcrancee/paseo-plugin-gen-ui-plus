@@ -27,6 +27,14 @@ export type ParsedMcpServersResult =
   | { readonly ok: true; readonly servers: Record<string, McpServerConfig> }
   | { readonly ok: false; readonly error: string };
 
+export interface CustomMcpOAuthConfig {
+  readonly clientId?: string;
+  readonly clientSecret?: string;
+  readonly callbackPort?: number;
+  readonly callbackPath?: string;
+  readonly scope?: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -166,5 +174,62 @@ export function resolveEnabledCustomMcpServers(
     }
   }
 
+  return out;
+}
+
+/**
+ * Extracts optional per-server `oauth` blocks (`clientId`, `clientSecret`, `callbackPort`,
+ * `callbackPath`, `scope`) from custom MCP JSON and expands `${ENV_VAR}` placeholders.
+ */
+export function resolveCustomMcpOAuthConfigs(
+  rawJson: string,
+  env: Readonly<Record<string, string | undefined>> = {},
+): Record<string, CustomMcpOAuthConfig> {
+  const trimmed = rawJson.trim();
+  if (!trimmed) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return {};
+  }
+  if (!isRecord(parsed)) return {};
+  const root = isRecord(parsed.mcpServers) ? parsed.mcpServers : parsed;
+  const out: Record<string, CustomMcpOAuthConfig> = {};
+
+  for (const [rawName, entry] of Object.entries(root)) {
+    const name = rawName.trim();
+    if (!name || !isRecord(entry) || !isRecord(entry.oauth)) continue;
+    const oauth = entry.oauth;
+    const clientId = typeof oauth.clientId === "string" && oauth.clientId.trim()
+      ? expandString(oauth.clientId.trim(), env)
+      : undefined;
+    const clientSecret = typeof oauth.clientSecret === "string" && oauth.clientSecret.trim()
+      ? expandString(oauth.clientSecret.trim(), env)
+      : undefined;
+    const callbackPort =
+      typeof oauth.callbackPort === "number" && Number.isInteger(oauth.callbackPort) && oauth.callbackPort > 0 && oauth.callbackPort <= 65535
+        ? oauth.callbackPort
+        : undefined;
+    const callbackPath =
+      typeof oauth.callbackPath === "string" && oauth.callbackPath.trim()
+        ? oauth.callbackPath.trim().startsWith("/")
+          ? oauth.callbackPath.trim()
+          : `/${oauth.callbackPath.trim()}`
+        : undefined;
+    const scope = typeof oauth.scope === "string" && oauth.scope.trim()
+      ? expandString(oauth.scope.trim(), env)
+      : undefined;
+
+    if (clientId || clientSecret || callbackPort || callbackPath || scope) {
+      out[name] = {
+        ...(clientId ? { clientId } : {}),
+        ...(clientSecret ? { clientSecret } : {}),
+        ...(callbackPort ? { callbackPort } : {}),
+        ...(callbackPath ? { callbackPath } : {}),
+        ...(scope ? { scope } : {}),
+      };
+    }
+  }
   return out;
 }

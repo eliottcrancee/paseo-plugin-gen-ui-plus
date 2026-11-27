@@ -22,10 +22,18 @@ export interface StoredOAuthRecord {
 
 export interface OAuthStatusSummary {
   url: string;
-  status: "connected" | "expired" | "pending" | "none";
+  status: "connected" | "expired" | "pending" | "public" | "none";
   expiresAt?: number;
   hasRefreshToken?: boolean;
   lastError?: string;
+}
+
+export interface StaticOAuthOptions {
+  readonly clientId?: string;
+  readonly clientSecret?: string;
+  readonly callbackPort?: number;
+  readonly callbackPath?: string;
+  readonly scope?: string;
 }
 
 interface ProtectedResourceMetadata {
@@ -65,6 +73,42 @@ const FETCH_TIMEOUT_MS = 12_000;
 
 const pendingFlowsByUrl = new Map<string, PendingFlow>();
 const lastErrorByUrl = new Map<string, string>();
+const publicProbeCache = new Map<string, { isPublic: boolean; checkedAt: number }>();
+const PUBLIC_PROBE_TTL_MS = 10 * 60 * 1000;
+const PUBLIC_PROBE_TIMEOUT_MS = 5_000;
+
+async function probeMcpServer(serverUrl: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<{
+  status: number;
+  wwwAuthenticate: string | null;
+}> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(serverUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "paseo-gen-ui-plus", version: "0.5.1" },
+        },
+      }),
+      signal: controller.signal,
+    });
+    return { status: res.status, wwwAuthenticate: res.headers.get("www-authenticate") };
+  } catch {
+    return { status: 0, wwwAuthenticate: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function expandEnvInUrl(
   rawUrl: string,
@@ -414,8 +458,9 @@ async function finishPendingFlow(
 export async function startMcpOAuthFlow(
   serverName: string,
   rawUrl: string,
+  options?: StaticOAuthOptions,
   storePath = DEFAULT_STORE_PATH,
-): Promise<{ ok: true; authUrl: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; authUrl?: string; noAuthRequired?: boolean } | { ok: false; error: string }> {
   const { missing } = expandEnvInUrl(rawUrl);
   if (missing.length > 0) {
     return {
@@ -434,38 +479,19 @@ export async function startMcpOAuthFlow(
   lastErrorByUrl.delete(serverUrl);
 
   try {
-    // Step 1: Probe MCP server to inspect WWW-Authenticate hints (RFC 9728).
+    // Step 1: Probe MCP server — detect public (no-auth) servers and inspect WWW-Authenticate hints (RFC 9728).
     let resourceMetadataHint: string | undefined;
     let scopeHint: string | undefined;
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-      const probe = await fetch(serverUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-06-18",
-            capabilities: {},
-            clientInfo: { name: "paseo-gen-ui-plus", version: "0.4.0" },
-          },
-        }),
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timer));
-
-      if (probe.status === 401) {
-        const parsedAuth = parseWwwAuthenticate(probe.headers.get("www-authenticate"));
-        resourceMetadataHint = parsedAuth.resourceMetadata;
-        scopeHint = parsedAuth.scope;
-      }
-    } catch {
-      // Probe failure is non-fatal; continue with well-known discovery.
+    const probe = await probeMcpServer(serverUrl, FETCH_TIMEOUT_MS);
+    if (probe.status >= 200 && probe.status < 300) {
+      publicProbeCache.set(serverUrl, { isPublic: true, checkedAt: Date.now() });
+      return { ok: true, noAuthRequired: true };
+    }
+    if (probe.status === 401) {
+      publicProbeCache.set(serverUrl, { isPublic: false, checkedAt: Date.now() });
+      const parsedAuth = parseWwwAuthenticate(probe.wwwAuthenticate);
+      resourceMetadataHint = parsedAuth.resourceMetadata;
+      scopeHint = parsedAuth.scope;
     }
 
     // Step 2: Discover Protected Resource & Authorization Server metadata.
@@ -474,19 +500,26 @@ export async function startMcpOAuthFlow(
     const asm = await discoverAuthServer(authServerUrl);
     const resource = prm?.resource ?? serverUrl;
     const scope =
+      options?.scope ??
       scopeHint ??
       (prm?.scopes_supported?.length ? prm.scopes_supported.join(" ") : undefined) ??
       (asm.scopes_supported?.length ? asm.scopes_supported.join(" ") : undefined);
 
-    // Step 3: Start ephemeral loopback callback server on 127.0.0.1.
+    // Step 3: Start loopback callback server on 127.0.0.1 (custom port/path or ephemeral).
     const { codeVerifier, codeChallenge } = generatePkcePair();
     const state = base64Url(randomBytes(24));
+    const callbackPath = options?.callbackPath
+      ? options.callbackPath.startsWith("/")
+        ? options.callbackPath
+        : `/${options.callbackPath}`
+      : "/oauth/callback";
+    const requestedPort = options?.callbackPort ?? 0;
 
     let flowRef: PendingFlow | null = null;
     const callbackServer = createServer((req: IncomingMessage, res: ServerResponse) => {
       const host = req.headers.host ?? "127.0.0.1";
       const reqUrl = new URL(req.url ?? "/", `http://${host}`);
-      if (reqUrl.pathname !== "/oauth/callback") {
+      if (reqUrl.pathname !== callbackPath) {
         res.statusCode = 404;
         res.end("Not found");
         return;
@@ -550,7 +583,7 @@ export async function startMcpOAuthFlow(
 
     const port = await new Promise<number>((resolve, reject) => {
       callbackServer.once("error", reject);
-      callbackServer.listen(0, "127.0.0.1", () => {
+      callbackServer.listen(requestedPort, "127.0.0.1", () => {
         const addr = callbackServer.address();
         if (addr && typeof addr === "object") {
           resolve(addr.port);
@@ -560,26 +593,31 @@ export async function startMcpOAuthFlow(
       });
     });
 
-    const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
+    const redirectUri = `http://127.0.0.1:${port}${callbackPath}`;
 
-    // Step 4: Dynamic Client Registration (RFC 7591).
-    if (!asm.registration_endpoint) {
-      callbackServer.close();
-      return {
-        ok: false,
-        error: "Server does not advertise an OAuth dynamic client registration_endpoint.",
-      };
-    }
-
+    // Step 4: Use pre-configured static OAuth client (e.g. Snowflake) or Dynamic Client Registration (RFC 7591).
     let clientId: string;
     let clientSecret: string | undefined;
-    try {
-      const reg = await registerDynamicClient(asm.registration_endpoint, redirectUri);
-      clientId = reg.clientId;
-      clientSecret = reg.clientSecret;
-    } catch (err) {
-      callbackServer.close();
-      throw err;
+    if (options?.clientId) {
+      clientId = options.clientId;
+      clientSecret = options.clientSecret;
+    } else {
+      if (!asm.registration_endpoint) {
+        callbackServer.close();
+        return {
+          ok: false,
+          error:
+            'Server does not support Dynamic Client Registration. Add "oauth": { "clientId": "...", "clientSecret": "...", "callbackPort": 19876, "callbackPath": "/oauth/callback" } in raw JSON.',
+        };
+      }
+      try {
+        const reg = await registerDynamicClient(asm.registration_endpoint, redirectUri);
+        clientId = reg.clientId;
+        clientSecret = reg.clientSecret;
+      } catch (err) {
+        callbackServer.close();
+        throw err;
+      }
     }
 
     // Step 5: Build authorization URL with PKCE S256.
@@ -642,6 +680,11 @@ export function getMcpOAuthStatuses(
     }
     const record = records[key];
     if (!record) {
+      const cachedPublic = publicProbeCache.get(key);
+      if (cachedPublic?.isPublic && now - cachedPublic.checkedAt < PUBLIC_PROBE_TTL_MS) {
+        out[rawUrl] = { url: rawUrl, status: "public" };
+        continue;
+      }
       const lastError = lastErrorByUrl.get(key);
       out[rawUrl] = {
         url: rawUrl,
@@ -660,6 +703,46 @@ export function getMcpOAuthStatuses(
   }
 
   return out;
+}
+
+/**
+ * Probes any unauthenticated (`none`) MCP URLs (cached 10m) so public servers
+ * like `https://mcp.pola.rs/mcp` automatically report `status: "public"`.
+ */
+export async function getMcpOAuthStatusesWithProbe(
+  urls: readonly string[],
+  probePublic = false,
+  storePath = DEFAULT_STORE_PATH,
+): Promise<Record<string, OAuthStatusSummary>> {
+  const initial = getMcpOAuthStatuses(urls, storePath);
+  if (!probePublic) return initial;
+
+  const now = Date.now();
+  const toProbe = urls.filter((rawUrl) => {
+    if (initial[rawUrl]?.status !== "none") return false;
+    const { missing } = expandEnvInUrl(rawUrl);
+    if (missing.length > 0) return false;
+    const key = normalizeServerUrl(rawUrl);
+    const cached = publicProbeCache.get(key);
+    return !cached || now - cached.checkedAt >= PUBLIC_PROBE_TTL_MS;
+  });
+
+  if (toProbe.length === 0) return initial;
+
+  await Promise.all(
+    toProbe.map(async (rawUrl) => {
+      const key = normalizeServerUrl(rawUrl);
+      const res = await probeMcpServer(key, PUBLIC_PROBE_TIMEOUT_MS);
+      if (res.status >= 200 && res.status < 300) {
+        publicProbeCache.set(key, { isPublic: true, checkedAt: Date.now() });
+        lastErrorByUrl.delete(key);
+      } else if (res.status === 401 || res.status === 403) {
+        publicProbeCache.set(key, { isPublic: false, checkedAt: Date.now() });
+      }
+    }),
+  );
+
+  return getMcpOAuthStatuses(urls, storePath);
 }
 
 /**

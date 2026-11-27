@@ -61,39 +61,42 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
     return urls;
   }, [savedParsed]);
 
-  const refreshOAuth = useCallback(async () => {
-    if (httpUrls.length === 0) {
-      setOAuthStatuses({});
-      return;
-    }
-    try {
-      const res = await fetchOAuthStatus({ urls: httpUrls });
-      setOAuthStatuses(res.statuses);
-      for (const [u, entry] of Object.entries(res.statuses)) {
-        const prev = prevStatusRef.current[u];
-        if (prev === "pending" && entry.status === "connected") {
-          setPendingLinks((cur) => {
-            const next = { ...cur };
-            delete next[u];
-            return next;
-          });
-          toast.show("OAuth connected! Start a new session to use this MCP server.", { variant: "success" });
-        } else if (prev === "pending" && entry.status !== "pending") {
-          setPendingLinks((cur) => {
-            const next = { ...cur };
-            delete next[u];
-            return next;
-          });
-        }
-        prevStatusRef.current[u] = entry.status;
+  const refreshOAuth = useCallback(
+    async (probePublic = false) => {
+      if (httpUrls.length === 0) {
+        setOAuthStatuses({});
+        return;
       }
-    } catch {
-      // Ignore transient RPC errors.
-    }
-  }, [fetchOAuthStatus, httpUrls, toast]);
+      try {
+        const res = await fetchOAuthStatus({ urls: httpUrls, probePublic });
+        setOAuthStatuses(res.statuses);
+        for (const [u, entry] of Object.entries(res.statuses)) {
+          const prev = prevStatusRef.current[u];
+          if (prev === "pending" && entry.status === "connected") {
+            setPendingLinks((cur) => {
+              const next = { ...cur };
+              delete next[u];
+              return next;
+            });
+            toast.show("OAuth connected! Start a new session to use this MCP server.", { variant: "success" });
+          } else if (prev === "pending" && entry.status !== "pending") {
+            setPendingLinks((cur) => {
+              const next = { ...cur };
+              delete next[u];
+              return next;
+            });
+          }
+          prevStatusRef.current[u] = entry.status;
+        }
+      } catch {
+        // Ignore transient RPC errors.
+      }
+    },
+    [fetchOAuthStatus, httpUrls, toast],
+  );
 
   useEffect(() => {
-    void refreshOAuth();
+    void refreshOAuth(true);
   }, [refreshOAuth]);
 
   const hasPending = Object.values(oauthStatuses).some((s) => s.status === "pending") || Object.keys(pendingLinks).length > 0;
@@ -101,7 +104,7 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
   useEffect(() => {
     if (!hasPending) return;
     const timer = setInterval(() => {
-      void refreshOAuth();
+      void refreshOAuth(false);
     }, 1500);
     return () => clearInterval(timer);
   }, [hasPending, refreshOAuth]);
@@ -114,10 +117,17 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
         toast.error(res.error);
         return;
       }
-      prevStatusRef.current[serverUrl] = "pending";
-      setPendingLinks((cur) => ({ ...cur, [serverUrl]: res.authUrl }));
-      toast.show(`Opening browser to sign in to "${serverName}"…`, { variant: "info" });
-      void refreshOAuth();
+      if (res.noAuthRequired) {
+        toast.show(`"${serverName}" is public — no sign-in required.`, { variant: "success" });
+        void refreshOAuth(false);
+        return;
+      }
+      if (res.authUrl) {
+        prevStatusRef.current[serverUrl] = "pending";
+        setPendingLinks((cur) => ({ ...cur, [serverUrl]: res.authUrl! }));
+        toast.show(`Opening browser to sign in to "${serverName}"…`, { variant: "info" });
+      }
+      void refreshOAuth(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -488,6 +498,11 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
                           · OAuth expired
                         </Text>
                       ) : null}
+                      {isRemote && !hasExplicitAuth && oauthState === "public" ? (
+                        <Text style={{ color: theme.colors.statusSuccess, fontSize: 11, fontWeight: "600" }}>
+                          · Public
+                        </Text>
+                      ) : null}
                       {hasExplicitAuth ? (
                         <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
                           · Header auth
@@ -499,7 +514,7 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
                     </Text>
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    {isRemote && !hasExplicitAuth ? (
+                    {isRemote && !hasExplicitAuth && oauthState !== "public" ? (
                       oauthState === "connected" ? (
                         <Pressable
                           accessibilityRole="button"

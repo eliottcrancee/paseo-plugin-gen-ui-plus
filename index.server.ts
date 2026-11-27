@@ -49,7 +49,12 @@ import {
   webTileRpc,
 } from "./shared/rpc";
 import { GENUI_BLOCK_KIND } from "./shared/segment";
-import { genuiSettings, parseFolders, resolveEnabledCustomMcpServers } from "./shared/settings";
+import {
+  genuiSettings,
+  parseFolders,
+  resolveCustomMcpOAuthConfigs,
+  resolveEnabledCustomMcpServers,
+} from "./shared/settings";
 import {
   agentStorageDir,
   examplesReport,
@@ -68,7 +73,7 @@ import {
 import { buildMcpServerConfig, startMcpBridge, type McpBridgeHandle } from "./server/mcp-bridge";
 import {
   clearMcpOAuthToken,
-  getMcpOAuthStatuses,
+  getMcpOAuthStatusesWithProbe,
   getValidMcpOAuthToken,
   startMcpOAuthFlow,
   stopAllMcpOAuthFlows,
@@ -469,11 +474,18 @@ export default function contribute(server: PluginServerContext) {
     return { appended: true, sections: report.sections.length };
   });
 
-  server.handle(mcpOAuthStatusRpc, ({ urls }) => ({
-    statuses: getMcpOAuthStatuses(urls),
+  server.handle(mcpOAuthStatusRpc, async ({ urls, probePublic }) => ({
+    statuses: await getMcpOAuthStatusesWithProbe(urls, Boolean(probePublic)),
   }));
 
-  server.handle(mcpOAuthStartRpc, ({ serverName, url }) => startMcpOAuthFlow(serverName, url));
+  server.handle(mcpOAuthStartRpc, async ({ serverName, url }) => {
+    const current = await settings.read();
+    const oauthConfigs =
+      current.status === "ready"
+        ? resolveCustomMcpOAuthConfigs(current.values.customMcpServersJson, process.env)
+        : {};
+    return startMcpOAuthFlow(serverName, url, oauthConfigs[serverName]);
+  });
 
   server.handle(mcpOAuthLogoutRpc, ({ url }) => ({
     cleared: clearMcpOAuthToken(url),
