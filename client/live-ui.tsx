@@ -205,6 +205,46 @@ export function LiveUi({
   );
 }
 
+function formatDiagnosticLine(d: Diagnostic): string {
+  return `${d.line}:${d.column} ${d.severity}: ${d.message}`;
+}
+
+function DiagnosticLine({ d, theme, fontSize = 11 }: { d: Diagnostic; theme: PluginTheme; fontSize?: number }) {
+  const toast = useToast();
+  const text = formatDiagnosticLine(d);
+  return (
+    <Pressable
+      onPress={() => {
+        void copyText(text).then(
+          () => toast.show("Diagnostic copied", { variant: "success" }),
+          () => toast.error("Could not copy"),
+        );
+      }}
+    >
+      <Text
+        selectable
+        style={{
+          color:
+            d.severity === "error"
+              ? theme.colors.statusDanger
+              : theme.colors.statusWarning,
+          fontFamily: "monospace",
+          fontSize,
+        }}
+      >
+        {text}
+      </Text>
+    </Pressable>
+  );
+}
+
+function formatDiagnosticsReport(source: string, diagnostics: readonly Diagnostic[]): string {
+  const diagText = diagnostics
+    .map(formatDiagnosticLine)
+    .join("\n");
+  return diagText ? `Diagnostics:\n${diagText}\n\n\`\`\`ui\n${source}\n\`\`\`` : `\`\`\`ui\n${source}\n\`\`\``;
+}
+
 function SourceFooter({
   source,
   diagnostics,
@@ -221,6 +261,24 @@ function SourceFooter({
   const [open, setOpen] = useState(false);
   const toast = useToast();
 
+  const copyDebugReport = () => {
+    void copyText(formatDiagnosticsReport(source, diagnostics)).then(
+      () => toast.show("Copied diagnostics + source", { variant: "success" }),
+      () => toast.error("Could not copy"),
+    );
+  };
+
+  const errorCount = diagnostics.filter((d) => d.severity === "error").length;
+  const warningCount = diagnostics.length - errorCount;
+  const issuesLabel =
+    errorCount > 0 && warningCount > 0
+      ? `${errorCount} error${errorCount === 1 ? "" : "s"} · ${warningCount} warning${warningCount === 1 ? "" : "s"}`
+      : errorCount > 0
+        ? `${errorCount} error${errorCount === 1 ? "" : "s"}`
+        : `${warningCount} warning${warningCount === 1 ? "" : "s"}`;
+  const issuesColor =
+    errorCount > 0 ? theme.colors.statusDanger : theme.colors.statusWarning;
+
   return (
     <View style={{ gap: 4 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -233,9 +291,21 @@ function SourceFooter({
         )}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           {diagnostics.length > 0 ? (
-            <Text style={{ color: theme.colors.statusWarning, fontSize: 11 }}>
-              {diagnostics.length} warning{diagnostics.length === 1 ? "" : "s"}
-            </Text>
+            <>
+              <Pressable onPress={() => setOpen((o) => !o)} hitSlop={4}>
+                <Text style={{ color: issuesColor, fontSize: 11, fontWeight: "600" }}>
+                  {issuesLabel}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={copyDebugReport}
+                hitSlop={4}
+                style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+              >
+                <Icon name="Copy" size={11} color={issuesColor} />
+                <Text style={{ color: issuesColor, fontSize: 11 }}>Copy</Text>
+              </Pressable>
+            </>
           ) : null}
           <Pressable
             onPress={() => setOpen((o) => !o)}
@@ -260,18 +330,31 @@ function SourceFooter({
             gap: 8,
           }}
         >
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>Spec source</Text>
-            <Pressable
-              onPress={() => {
-                void copyText(source).then(
-                  () => toast.show("Source copied", { variant: "success" }),
-                  () => toast.error("Could not copy"),
-                );
-              }}
-            >
-              <Icon name="Copy" size={12} color={theme.colors.foregroundMuted} />
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              {diagnostics.length > 0 ? (
+                <Pressable
+                  onPress={copyDebugReport}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                >
+                  <Icon name="Copy" size={11} color={issuesColor} />
+                  <Text style={{ color: issuesColor, fontSize: 11 }}>Copy debug</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => {
+                  void copyText(source).then(
+                    () => toast.show("Source copied", { variant: "success" }),
+                    () => toast.error("Could not copy"),
+                  );
+                }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+              >
+                <Icon name="Copy" size={11} color={theme.colors.foregroundMuted} />
+                <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>Copy source</Text>
+              </Pressable>
+            </View>
           </View>
           <Text
             selectable
@@ -282,19 +365,7 @@ function SourceFooter({
           {diagnostics.length > 0 ? (
             <View style={{ gap: 2 }}>
               {diagnostics.map((d, i) => (
-                <Text
-                  key={i}
-                  style={{
-                    color:
-                      d.severity === "error"
-                        ? theme.colors.statusDanger
-                        : theme.colors.statusWarning,
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                  }}
-                >
-                  {d.line}:{d.column} {d.severity}: {d.message}
-                </Text>
+                <DiagnosticLine key={i} d={d} theme={theme} />
               ))}
             </View>
           ) : null}
@@ -384,7 +455,14 @@ export function AppBlockView({
           </View>
         )}
         {error ? (
-          <Text style={{ color: theme.colors.statusDanger, fontSize: 11.5 }}>{error}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <Text selectable style={{ color: theme.colors.statusDanger, fontSize: 11.5, flex: 1 }}>
+              {error}
+            </Text>
+            <Pressable onPress={() => void copyText(error)} hitSlop={4}>
+              <Icon name="Copy" size={12} color={theme.colors.statusDanger} />
+            </Pressable>
+          </View>
         ) : null}
       </View>
       <SourceFooter source={html} diagnostics={[]} fileCount={0} theme={theme} />
@@ -454,16 +532,33 @@ export function SpecBlockView({
           gap: 6,
         }}
       >
-        <Text style={{ color: theme.colors.statusDanger, fontSize: 12.5, fontWeight: "600" }}>
-          This UI couldn&apos;t be rendered
-        </Text>
-        {result.diagnostics.map((d, idx) => (
-          <Text
-            key={idx}
-            style={{ color: theme.colors.foregroundMuted, fontFamily: "monospace", fontSize: 11.5 }}
-          >
-            {d.line}:{d.column} {d.severity}: {d.message}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <Text style={{ color: theme.colors.statusDanger, fontSize: 12.5, fontWeight: "600" }}>
+            This UI couldn&apos;t be rendered
           </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void copyText(formatDiagnosticsReport(code, result.diagnostics))}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 6,
+              backgroundColor: theme.colors.surface2,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.colors.border,
+            }}
+          >
+            <Icon name="Copy" size={11} color={theme.colors.foreground} />
+            <Text style={{ color: theme.colors.foreground, fontSize: 11, fontWeight: "600" }}>
+              Copy error + source
+            </Text>
+          </Pressable>
+        </View>
+        {result.diagnostics.map((d, idx) => (
+          <DiagnosticLine key={idx} d={d} theme={theme} fontSize={11.5} />
         ))}
         <SourceFooter source={code} diagnostics={result.diagnostics} fileCount={0} theme={theme} />
       </View>
