@@ -507,55 +507,83 @@ export function List({ props }: { props: Props }) {
   return (
     <View
       style={{
-        borderRadius: 8,
+        borderRadius: 10,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surface2,
         overflow: "hidden",
       }}
     >
       {rows.map((item, idx) => {
         const iconName = item.icon ? resolveIconName(item.icon) ?? item.icon : null;
         const t = item.tone ?? "neutral";
+        const dotColor = t === "neutral" ? theme.colors.accent : toneColor(theme, t);
+        const clickable = item.actions.length > 0;
         const rowContent = (
           <View
             style={{
               flexDirection: "row",
-              alignItems: "center",
+              alignItems: "flex-start",
               justifyContent: "space-between",
               gap: 10,
-              paddingHorizontal: 12,
-              paddingVertical: 9,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
               borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
               borderTopColor: theme.colors.border,
+              backgroundColor: idx % 2 === 1 ? theme.colors.surface1 : "transparent",
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, flex: 1 }}>
               {iconName ? (
-                <PaseoIcon name={iconName} size={15} color={toneColor(theme, t)} />
-              ) : null}
-              <View style={{ flex: 1, gap: 2 }}>
-                <RNText style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "500" }}>
-                  {item.title}
+                <View style={{ marginTop: 2 }}>
+                  <PaseoIcon name={iconName} size={15} color={toneColor(theme, t)} />
+                </View>
+              ) : (
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: dotColor,
+                    marginTop: 7,
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+              <View style={{ flex: 1, gap: 3 }}>
+                <RNText
+                  selectable
+                  style={{ color: theme.colors.foreground, fontSize: 13.5, fontWeight: "500", lineHeight: 19 }}
+                >
+                  <InlineMarkdown text={item.title} theme={theme} />
                 </RNText>
                 {item.detail ? (
-                  <RNText style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+                  <RNText
+                    selectable
+                    style={{ color: theme.colors.foregroundMuted, fontSize: 12.5, lineHeight: 18 }}
+                  >
                     <InlineMarkdown text={item.detail} theme={theme} />
                   </RNText>
                 ) : null}
               </View>
             </View>
-            {item.value !== null ? (
-              isNode(item.value) ? (
-                <RenderNode node={item.value} />
-              ) : (
-                <RNText style={{ color: toneColor(theme, t), fontSize: 12.5, fontWeight: "500" }}>
-                  {text(item.value)}
-                </RNText>
-              )
-            ) : null}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "center" }}>
+              {item.value !== null ? (
+                isNode(item.value) ? (
+                  <RenderNode node={item.value} />
+                ) : (
+                  <RNText style={{ color: toneColor(theme, t), fontSize: 12.5, fontWeight: "600" }}>
+                    {text(item.value)}
+                  </RNText>
+                )
+              ) : null}
+              {clickable ? (
+                <PaseoIcon name="ChevronRight" size={14} color={theme.colors.foregroundMuted} />
+              ) : null}
+            </View>
           </View>
         );
-        return item.actions.length > 0 ? (
+        return clickable ? (
           <Pressable key={idx} accessibilityRole="button" onPress={() => void run(item.actions)}>
             {rowContent}
           </Pressable>

@@ -242,6 +242,28 @@ export const inspectContextRpc = defineRpc({
   output: z.object({ appended: z.boolean(), sections: z.number() }),
 });
 
+export const skillEntrySchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  source: z.string(),
+  path: z.string(),
+  body: z.string(),
+  frontmatterTokens: z.number(),
+  fullTokens: z.number(),
+});
+
+export type SkillEntryDto = z.infer<typeof skillEntrySchema>;
+
+export const skillsListRpc = defineRpc({
+  name: "genui.skills_list",
+  input: z.object({
+    agentId: agentIdSchema.optional(),
+  }),
+  output: z.object({
+    skills: z.array(skillEntrySchema),
+  }),
+});
+
 export const genuiBlockDataSchema = z.object({
   language: z.enum(["ui", "app"]),
   code: z.string(),

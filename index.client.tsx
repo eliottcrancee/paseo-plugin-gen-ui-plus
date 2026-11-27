@@ -19,6 +19,7 @@ import {
 } from "./client/gallery";
 import { TimelineBlockItem, TimelineTextItem } from "./client/live-ui";
 import { GenUiSettingsScreen } from "./client/settings";
+import { contributeSkillsPills } from "./client/skills-pill";
 
 export default function contribute(client: PluginClientContext) {
   const playAudio = async (dataUrl: string) => {
@@ -55,19 +56,19 @@ export default function contribute(client: PluginClientContext) {
 
   client.addScreen({
     id: "gallery",
-    title: "Gen-UI Gallery",
+    title: "Gen-UI Plus",
     Component: (props) => <GalleryScreen {...props} playAudio={playAudio} />,
   });
 
   client.addSidebarHeaderItem({
     id: "gallery",
-    title: "Gen-UI Gallery",
+    title: "Gen-UI Plus",
     Component: GallerySidebarItem,
   });
 
   client.addWorkspacePanel({
     id: "gallery",
-    title: "Gen-UI Gallery",
+    title: "Gen-UI Plus",
     icon: "LayoutGrid",
     context: "workspace",
     locations: ["workspace", "explorer"],
@@ -182,5 +183,34 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
-  return () => {};
+  client.addCommandCenterItem({
+    id: "open-mcp",
+    title: "Gen-UI Plus: Manage MCP Servers",
+    icon: "Plug",
+    keywords: ["genui", "mcp", "servers", "notion", "tools"],
+    context: "global",
+    onSelect({ openScreen }) {
+      openScreen({ screenId: "gallery", params: { tab: "mcp" } });
+    },
+  });
+
+  client.addCommandCenterItem({
+    id: "open-skills",
+    title: "Gen-UI Plus: Browse Skills",
+    icon: "Sparkles",
+    keywords: ["genui", "skills", "prompts"],
+    context: "global",
+    onSelect({ openScreen }) {
+      openScreen({ screenId: "gallery", params: { tab: "skills" } });
+    },
+  });
+
+  const teardownSkillsPills = contributeSkillsPills(client, () => {
+    const open = (client as unknown as { openScreen?: (opts: { screenId: string; params?: Record<string, string> }) => void }).openScreen;
+    open?.({ screenId: "gallery", params: { tab: "skills" } });
+  });
+
+  return () => {
+    teardownSkillsPills();
+  };
 }

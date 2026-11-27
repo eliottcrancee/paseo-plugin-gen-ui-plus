@@ -13,7 +13,9 @@ import { COMPONENTS, componentSignature, type ComponentGroup, type ComponentName
 import { componentsIn, GALLERY_GROUPS, searchComponents } from "../shared/logic/gallery-search";
 import { galleryGetRpc, galleryListRpc } from "../shared/rpc";
 import { SpecBlockView } from "./live-ui";
+import { McpServersView } from "./mcp-view";
 import type { UiRuntime } from "./runtime";
+import { SkillsView } from "./skills-view";
 
 const PLAYGROUND_SPEC = `$seats = 12
 $plan = "Pro"
@@ -40,11 +42,18 @@ export function GallerySidebarItem({ currentScreen, openScreen }: PluginSidebarI
   return (
     <SidebarRow
       icon="LayoutGrid"
-      label="Gen-UI Gallery"
+      label="Gen-UI Plus"
       active={currentScreen?.screenId === "gallery"}
       onPress={() => openScreen({ screenId: "gallery" })}
     />
   );
+}
+
+type HubTab = "browse" | "playground" | "mcp" | "skills";
+
+function parseTab(raw: string | undefined): HubTab {
+  if (raw === "playground" || raw === "mcp" || raw === "skills") return raw;
+  return "browse";
 }
 
 export function GalleryScreen(
@@ -57,6 +66,7 @@ export function GalleryScreen(
       platform={props.layout.platform}
       playAudio={props.playAudio}
       initialComponent={props.params.component ?? null}
+      initialTab={parseTab(props.params.tab)}
     />
   );
 }
@@ -71,6 +81,7 @@ export function GalleryWorkspacePanel(
       platform={props.layout.platform}
       playAudio={props.playAudio}
       initialComponent={null}
+      initialTab="browse"
     />
   );
 }
@@ -81,12 +92,14 @@ function GalleryBody({
   platform,
   playAudio,
   initialComponent,
+  initialTab,
 }: {
   theme: PluginTheme;
   compact: boolean;
   platform: "ios" | "android" | "web";
   playAudio: UiRuntime["playAudio"];
   initialComponent: string | null;
+  initialTab: HubTab;
 }) {
   const listGallery = useRpc(galleryListRpc);
   const [files, setFiles] = useState<string[]>([]);
@@ -95,8 +108,12 @@ function GalleryBody({
     initialComponent && isComponent(initialComponent) ? initialComponent : null,
   );
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<"browse" | "playground">("browse");
+  const [mode, setMode] = useState<HubTab>(initialTab);
   const [playgroundCode, setPlaygroundCode] = useState(PLAYGROUND_SPEC);
+
+  useEffect(() => {
+    setMode(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     let live = true;
@@ -148,22 +165,30 @@ function GalleryBody({
         alignSelf: "center",
       }}
     >
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+      <View style={{ flexDirection: compact ? "column" : "row", justifyContent: "space-between", alignItems: compact ? "flex-start" : "center", gap: 12 }}>
         <View style={{ gap: 2, flex: 1 }}>
           <Text style={{ color: theme.colors.foreground, fontSize: compact ? 18 : 22, fontWeight: "700" }}>
-            Generative UI Gallery
+            Gen-UI Plus
           </Text>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12.5 }}>
-            86 components in 10 groups · {files.length} live examples
+            {Object.keys(COMPONENTS).length} components · {files.length} examples · MCP Servers · Skills
           </Text>
         </View>
-        <View style={{ flexDirection: "row", gap: 6 }}>
-          {(["browse", "playground"] as const).map((tab) => {
-            const active = mode === tab;
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {(
+            [
+              { id: "browse", label: "Gallery" },
+              { id: "playground", label: "Playground" },
+              { id: "mcp", label: "MCP Servers" },
+              { id: "skills", label: "Skills" },
+            ] as const
+          ).map((tab) => {
+            const active = mode === tab.id;
             return (
               <Pressable
-                key={tab}
-                onPress={() => setMode(tab)}
+                key={tab.id}
+                accessibilityRole="tab"
+                onPress={() => setMode(tab.id)}
                 style={{
                   paddingHorizontal: 12,
                   paddingVertical: 6,
@@ -176,10 +201,9 @@ function GalleryBody({
                     color: active ? theme.colors.accentForeground : theme.colors.foreground,
                     fontSize: 12.5,
                     fontWeight: "600",
-                    textTransform: "capitalize",
                   }}
                 >
-                  {tab}
+                  {tab.label}
                 </Text>
               </Pressable>
             );
@@ -187,7 +211,11 @@ function GalleryBody({
         </View>
       </View>
 
-      {mode === "playground" ? (
+      {mode === "mcp" ? (
+        <McpServersView theme={theme} />
+      ) : mode === "skills" ? (
+        <SkillsView theme={theme} compact={compact} />
+      ) : mode === "playground" ? (
         <View style={{ gap: 12 }}>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12.5 }}>
             Edit the ```ui spec below and interact with the live preview:

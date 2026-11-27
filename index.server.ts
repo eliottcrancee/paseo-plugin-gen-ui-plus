@@ -29,6 +29,7 @@ import {
   projectThreadsRpc,
   renderMarkdownRpc,
   sketchFontRpc,
+  skillsListRpc,
   uiExamplesRpc,
   webGeocodeRpc,
   webImageRpc,
@@ -71,6 +72,7 @@ import {
 } from "./server/project";
 import { createWebLookups } from "./server/web/lookups";
 import { runWebFetch, runWebSearch } from "./server/web/research";
+import { listInstalledSkills } from "./server/skills";
 
 const PREAPPROVE_MCP_PROVIDERS = new Set(["claude", "codex", "opencode"]);
 
@@ -315,6 +317,9 @@ export default function contribute(server: PluginServerContext) {
   );
 
   server.handle(uiExamplesRpc, ({ components }) => examplesReport(components));
+  server.handle(skillsListRpc, async ({ agentId }, { paseo }) => ({
+    skills: await listInstalledSkills(paseo, agentId),
+  }));
 
   server.handle(galleryListRpc, async () => ({ names: await listGallery() }));
   server.handle(galleryGetRpc, async ({ name }) => ({ source: await readGallerySpec(name) }));
