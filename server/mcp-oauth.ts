@@ -599,6 +599,17 @@ export async function startMcpOAuthFlow(
     let clientId: string;
     let clientSecret: string | undefined;
     if (options?.clientId) {
+      const missingClientVars = [
+        ...expandEnvInUrl(options.clientId).missing,
+        ...(options.clientSecret ? expandEnvInUrl(options.clientSecret).missing : []),
+      ];
+      if (missingClientVars.length > 0) {
+        callbackServer.close();
+        return {
+          ok: false,
+          error: `Missing OAuth environment variable${missingClientVars.length === 1 ? "" : "s"} in Paseo daemon: ${[...new Set(missingClientVars)].join(", ")}`,
+        };
+      }
       clientId = options.clientId;
       clientSecret = options.clientSecret;
     } else {

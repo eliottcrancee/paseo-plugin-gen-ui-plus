@@ -665,28 +665,62 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
                   ? `✓ Valid JSON (${Object.keys(draftParsed.servers).length} server${Object.keys(draftParsed.servers).length === 1 ? "" : "s"})`
                   : draftParsed.error}
               </Text>
-              <Pressable
-                disabled={jsonDraft === null || jsonDraft === savedJson || !draftParsed.ok}
-                onPress={() => {
-                  if (jsonDraft !== null && draftParsed.ok) {
-                    void save({ ...values, customMcpServersJson: jsonDraft }, revision).then(() => {
-                      setJsonDraft(null);
-                      toast.show("Saved MCP servers JSON", { variant: "success" });
-                    });
-                  }
-                }}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 7,
-                  backgroundColor: theme.colors.accent,
-                  opacity: jsonDraft === null || jsonDraft === savedJson || !draftParsed.ok ? 0.45 : 1,
-                }}
-              >
-                <Text style={{ color: theme.colors.accentForeground, fontSize: 12, fontWeight: "600" }}>
-                  Save JSON
-                </Text>
-              </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Pressable
+                  disabled={!draftParsed.ok || rawDraft.trim() === ""}
+                  onPress={() => {
+                    try {
+                      const formatted = JSON.stringify(JSON.parse(rawDraft), null, 2);
+                      setJsonDraft(formatted);
+                    } catch {
+                      // Ignore invalid JSON
+                    }
+                  }}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 7,
+                    backgroundColor: theme.colors.surface1,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: theme.colors.border,
+                    opacity: !draftParsed.ok || rawDraft.trim() === "" ? 0.45 : 1,
+                  }}
+                >
+                  <Text style={{ color: theme.colors.foreground, fontSize: 12, fontWeight: "500" }}>
+                    Format
+                  </Text>
+                </Pressable>
+                <Pressable
+                  disabled={jsonDraft === null || jsonDraft === savedJson || !draftParsed.ok}
+                  onPress={() => {
+                    if (jsonDraft !== null && draftParsed.ok) {
+                      let formatted = jsonDraft.trim();
+                      if (formatted !== "") {
+                        try {
+                          formatted = JSON.stringify(JSON.parse(formatted), null, 2);
+                        } catch {
+                          // Keep raw valid draft if needed
+                        }
+                      }
+                      void save({ ...values, customMcpServersJson: formatted }, revision).then(() => {
+                        setJsonDraft(null);
+                        toast.show("Formatted & saved MCP servers JSON", { variant: "success" });
+                      });
+                    }
+                  }}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 7,
+                    backgroundColor: theme.colors.accent,
+                    opacity: jsonDraft === null || jsonDraft === savedJson || !draftParsed.ok ? 0.45 : 1,
+                  }}
+                >
+                  <Text style={{ color: theme.colors.accentForeground, fontSize: 12, fontWeight: "600" }}>
+                    Save JSON
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         ) : null}
