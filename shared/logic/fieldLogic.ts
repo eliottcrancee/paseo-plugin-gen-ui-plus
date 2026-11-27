@@ -136,3 +136,37 @@ export function ratingValue(state: Value | undefined, max: number): number {
 export function starFill(value: number, index: number): number {
   return Math.min(1, Math.max(0, value - (index - 1)));
 }
+
+const OTHER_OPTION_RE =
+  /^(?:autre(?:\s+chose)?|other|something\s+else|custom|personnalis[ée]e?)(?:\s*[(\[….:—–-].*)?$/i;
+
+/** True when an option label invites the user to type a custom answer ("Autre", "Other", "Something else", etc.). */
+export function isOtherOption(label: string): boolean {
+  return OTHER_OPTION_RE.test(label.trim());
+}
+
+/** Formats a custom checklist entry for an "Other" option (`"Autre: foo"` or `"Autre"` when blank). */
+export function formatOtherEntry(otherLabel: string, customText: string): string {
+  const clean = customText.trim();
+  return clean === "" ? otherLabel : `${otherLabel}: ${clean}`;
+}
+
+/** True when `item` is either the literal `otherLabel` or a `"<otherLabel>: ..."` custom entry. */
+export function isOtherEntry(item: Value, otherLabel: string): boolean {
+  if (typeof item !== "string") return false;
+  return item === otherLabel || item.startsWith(`${otherLabel}: `);
+}
+
+/** Extracts the typed custom text from an `"<otherLabel>: ..."` checklist entry. */
+export function extractOtherText(item: Value, otherLabel: string): string {
+  if (typeof item === "string" && item.startsWith(`${otherLabel}: `)) {
+    return item.slice(otherLabel.length + 2);
+  }
+  return "";
+}
+
+/** Replaces or appends the custom `"Other"` entry inside a multi-select list. */
+export function updateOtherInList(picked: readonly Value[], otherLabel: string, customText: string): Value[] {
+  const without = picked.filter((item) => !isOtherEntry(item, otherLabel));
+  return [...without, formatOtherEntry(otherLabel, customText)];
+}

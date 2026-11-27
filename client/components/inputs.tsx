@@ -18,11 +18,16 @@ import {
 } from "../../shared/logic/choose-logic";
 import {
   addItem,
+  extractOtherText,
+  formatOtherEntry,
+  isOtherEntry,
+  isOtherOption,
   itemText,
   radioOptions,
   stepBy,
   stepperValue,
   stepRange,
+  updateOtherInList,
 } from "../../shared/logic/fieldLogic";
 import { resolveIconName } from "../../shared/logic/icons";
 import {
@@ -271,12 +276,58 @@ export function Toggle({ props }: { props: Props }) {
   );
 }
 
+function OtherTextInput({
+  value,
+  onChangeText,
+  placeholder,
+}: {
+  value: string;
+  onChangeText(next: string): void;
+  placeholder: string;
+}) {
+  const { theme } = useUiRuntime();
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={theme.colors.foregroundMuted}
+      style={{
+        borderRadius: 8,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.accent,
+        backgroundColor: theme.colors.surface2,
+        color: theme.colors.foreground,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        fontSize: 12.5,
+      }}
+    />
+  );
+}
+
 export function Choice({ props }: { props: Props }) {
   const { theme, setValue } = useUiRuntime();
+  const [otherSelected, setOtherSelected] = useState(false);
+  const [otherText, setOtherText] = useState("");
   const binding = isBinding(props.value) ? props.value : null;
   if (!binding) return <ErrorLine message="Choice expects a $state binding" />;
   const options = list(props.options).filter(isScalar);
   const label = optionalText(props.label);
+  const otherOpt = options.find((opt) => isOtherOption(itemText(opt)));
+  const otherLabel = otherOpt !== undefined ? itemText(otherOpt) : null;
+  const matchesStandard = options.some((opt) => opt !== otherOpt && binding.value === opt);
+  const isOtherActive =
+    otherOpt !== undefined &&
+    (otherSelected ||
+      binding.value === otherOpt ||
+      (typeof binding.value === "string" && binding.value.trim() !== "" && !matchesStandard));
+  const shownOtherText =
+    otherText !== ""
+      ? otherText
+      : isOtherActive && typeof binding.value === "string" && binding.value !== otherOpt
+        ? binding.value
+        : "";
 
   return (
     <View style={{ gap: 6 }}>
@@ -292,12 +343,21 @@ export function Choice({ props }: { props: Props }) {
         }}
       >
         {options.map((opt, idx) => {
-          const active = binding.value === opt;
+          const isThisOther = opt === otherOpt;
+          const active = isThisOther ? isOtherActive : !otherSelected && binding.value === opt;
           return (
             <Pressable
               key={idx}
               accessibilityRole="button"
-              onPress={() => setValue(binding.name, opt)}
+              onPress={() => {
+                if (isThisOther) {
+                  setOtherSelected(true);
+                  setValue(binding.name, shownOtherText.trim() !== "" ? shownOtherText : opt);
+                } else {
+                  setOtherSelected(false);
+                  setValue(binding.name, opt);
+                }
+              }}
               style={{
                 flex: 1,
                 minWidth: 72,
@@ -321,28 +381,64 @@ export function Choice({ props }: { props: Props }) {
           );
         })}
       </View>
+      {isOtherActive && otherLabel !== null ? (
+        <OtherTextInput
+          value={shownOtherText}
+          placeholder={`Précisez (${otherLabel})…`}
+          onChangeText={(next) => {
+            setOtherSelected(true);
+            setOtherText(next);
+            setValue(binding.name, next.trim() !== "" ? next : otherOpt!);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
 
 export function Radio({ props }: { props: Props }) {
   const { theme, setValue } = useUiRuntime();
+  const [otherSelected, setOtherSelected] = useState(false);
+  const [otherText, setOtherText] = useState("");
   const binding = isBinding(props.value) ? props.value : null;
   if (!binding) return <ErrorLine message="Radio expects a $state binding" />;
   const options = radioOptions(props.options);
   const label = optionalText(props.label);
+  const otherOpt = options.find((opt) => isOtherOption(itemText(opt.value)));
+  const otherLabel = otherOpt !== undefined ? itemText(otherOpt.value) : null;
+  const matchesStandard = options.some((opt) => opt !== otherOpt && binding.value === opt.value);
+  const isOtherActive =
+    otherOpt !== undefined &&
+    (otherSelected ||
+      binding.value === otherOpt.value ||
+      (typeof binding.value === "string" && binding.value.trim() !== "" && !matchesStandard));
+  const shownOtherText =
+    otherText !== ""
+      ? otherText
+      : isOtherActive && typeof binding.value === "string" && binding.value !== otherOpt.value
+        ? binding.value
+        : "";
 
   return (
     <View style={{ gap: 6 }}>
       <FieldLabel label={label} />
       <View style={{ gap: 6 }}>
         {options.map((opt, idx) => {
-          const active = binding.value === opt.value;
+          const isThisOther = opt === otherOpt;
+          const active = isThisOther ? isOtherActive : !otherSelected && binding.value === opt.value;
           return (
             <Pressable
               key={idx}
               accessibilityRole="radio"
-              onPress={() => setValue(binding.name, opt.value)}
+              onPress={() => {
+                if (isThisOther) {
+                  setOtherSelected(true);
+                  setValue(binding.name, shownOtherText.trim() !== "" ? shownOtherText : opt.value);
+                } else {
+                  setOtherSelected(false);
+                  setValue(binding.name, opt.value);
+                }
+              }}
               style={{
                 flexDirection: "row",
                 alignItems: "flex-start",
@@ -391,6 +487,17 @@ export function Radio({ props }: { props: Props }) {
           );
         })}
       </View>
+      {isOtherActive && otherLabel !== null ? (
+        <OtherTextInput
+          value={shownOtherText}
+          placeholder={`Précisez (${otherLabel})…`}
+          onChangeText={(next) => {
+            setOtherSelected(true);
+            setOtherText(next);
+            setValue(binding.name, next.trim() !== "" ? next : otherOpt!.value);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -401,23 +508,41 @@ export function Select({ props }: { props: Props }) {
 
 export function Checklist({ props }: { props: Props }) {
   const { theme, setValue } = useUiRuntime();
+  const [otherText, setOtherText] = useState("");
   const binding = isBinding(props.value) ? props.value : null;
   if (!binding) return <ErrorLine message="Checklist expects a $state binding" />;
   const picked = Array.isArray(binding.value) ? binding.value : [];
   const options = list(props.options).filter(isScalar);
   const label = optionalText(props.label);
+  const otherOpt = options.find((opt) => isOtherOption(itemText(opt)));
+  const otherLabel = otherOpt !== undefined ? itemText(otherOpt) : null;
+  const existingOther = otherLabel !== null ? picked.find((item) => isOtherEntry(item, otherLabel)) : undefined;
+  const isOtherChecked = existingOther !== undefined;
+  const shownOtherText =
+    otherText !== "" ? otherText : otherLabel !== null && existingOther !== undefined ? extractOtherText(existingOther, otherLabel) : "";
 
   return (
     <View style={{ gap: 6 }}>
       <FieldLabel label={label} />
       <View style={{ gap: 6 }}>
         {options.map((opt, idx) => {
-          const checked = picked.includes(opt);
+          const isThisOther = opt === otherOpt && otherLabel !== null;
+          const checked = isThisOther ? isOtherChecked : picked.includes(opt);
           return (
             <Pressable
               key={idx}
               accessibilityRole="checkbox"
-              onPress={() => setValue(binding.name, togglePick(picked, opt, options))}
+              onPress={() => {
+                if (isThisOther && otherLabel !== null) {
+                  if (isOtherChecked) {
+                    setValue(binding.name, picked.filter((item) => !isOtherEntry(item, otherLabel)));
+                  } else {
+                    setValue(binding.name, [...picked, formatOtherEntry(otherLabel, shownOtherText)]);
+                  }
+                } else {
+                  setValue(binding.name, togglePick(picked, opt, options));
+                }
+              }}
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -449,6 +574,16 @@ export function Checklist({ props }: { props: Props }) {
           );
         })}
       </View>
+      {isOtherChecked && otherLabel !== null ? (
+        <OtherTextInput
+          value={shownOtherText}
+          placeholder={`Précisez (${otherLabel})…`}
+          onChangeText={(next) => {
+            setOtherText(next);
+            setValue(binding.name, updateOtherInList(picked, otherLabel, next));
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -647,6 +782,8 @@ export function Rating({ props }: { props: Props }) {
 
 export function OptionCards({ props }: { props: Props }) {
   const { theme, compact, setValue } = useUiRuntime();
+  const [otherSelected, setOtherSelected] = useState(false);
+  const [otherText, setOtherText] = useState("");
   const binding = isBinding(props.value) ? props.value : null;
   if (!binding) return <ErrorLine message="OptionCards expects a $state binding" />;
   const options = cardOptions(props.options);
@@ -655,21 +792,59 @@ export function OptionCards({ props }: { props: Props }) {
   const isMulti = Array.isArray(binding.value);
   const pickedList = isMulti ? (binding.value as readonly Value[]) : [];
   const allValues = options.map((o) => o.value);
+  const otherOpt = options.find((o) => isOtherOption(o.title) || isOtherOption(itemText(o.value)));
+  const otherLabel = otherOpt ? itemText(otherOpt.value) : null;
+  const existingMultiOther = isMulti && otherLabel !== null ? pickedList.find((item) => isOtherEntry(item, otherLabel)) : undefined;
+  const matchesStandardSingle = !isMulti && options.some((o) => o !== otherOpt && binding.value === o.value);
+  const isOtherActive =
+    otherOpt !== undefined &&
+    (isMulti
+      ? existingMultiOther !== undefined
+      : otherSelected ||
+        binding.value === otherOpt.value ||
+        (typeof binding.value === "string" && binding.value.trim() !== "" && !matchesStandardSingle));
+  const shownOtherText =
+    otherText !== ""
+      ? otherText
+      : isMulti
+        ? otherLabel !== null && existingMultiOther !== undefined
+          ? extractOtherText(existingMultiOther, otherLabel)
+          : ""
+        : isOtherActive && typeof binding.value === "string" && binding.value !== otherOpt?.value
+          ? binding.value
+          : "";
 
   return (
     <View style={{ gap: 6 }}>
       <FieldLabel label={label} />
       <View style={{ flexDirection: compact ? "column" : "row", flexWrap: "wrap", gap: 8 }}>
         {options.map((opt, idx) => {
-          const selected = isMulti ? pickedList.includes(opt.value) : binding.value === opt.value;
+          const isThisOther = opt === otherOpt;
+          const selected = isThisOther
+            ? isOtherActive
+            : isMulti
+              ? pickedList.includes(opt.value)
+              : !otherSelected && binding.value === opt.value;
           const iconName = opt.icon ? resolveIconName(opt.icon) ?? opt.icon : null;
           return (
             <Pressable
               key={idx}
               onPress={() => {
                 if (isMulti) {
-                  setValue(binding.name, togglePick(pickedList, opt.value, allValues));
+                  if (isThisOther && otherLabel !== null) {
+                    if (isOtherActive) {
+                      setValue(binding.name, pickedList.filter((item) => !isOtherEntry(item, otherLabel)));
+                    } else {
+                      setValue(binding.name, [...pickedList, formatOtherEntry(otherLabel, shownOtherText)]);
+                    }
+                  } else {
+                    setValue(binding.name, togglePick(pickedList, opt.value, allValues));
+                  }
+                } else if (isThisOther) {
+                  setOtherSelected(true);
+                  setValue(binding.name, shownOtherText.trim() !== "" ? shownOtherText : opt.value);
                 } else {
+                  setOtherSelected(false);
                   setValue(binding.name, opt.value);
                 }
               }}
@@ -698,6 +873,21 @@ export function OptionCards({ props }: { props: Props }) {
           );
         })}
       </View>
+      {isOtherActive && otherLabel !== null ? (
+        <OtherTextInput
+          value={shownOtherText}
+          placeholder={`Précisez (${otherOpt!.title})…`}
+          onChangeText={(next) => {
+            setOtherSelected(true);
+            setOtherText(next);
+            if (isMulti) {
+              setValue(binding.name, updateOtherInList(pickedList, otherLabel, next));
+            } else {
+              setValue(binding.name, next.trim() !== "" ? next : otherOpt!.value);
+            }
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -766,7 +956,7 @@ export function EditableTable({ props }: { props: Props }) {
   return (
     <View style={{ gap: 6 }}>
       <FieldLabel label={label} />
-      <ScrollView horizontal>
+      <ScrollView horizontal contentContainerStyle={{ flexGrow: 1 }}>
         <View
           style={{
             borderRadius: 8,
@@ -872,6 +1062,8 @@ export function EditableTable({ props }: { props: Props }) {
 
 export function Button({ props }: { props: Props }) {
   const { theme, run } = useUiRuntime();
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherDraft, setOtherDraft] = useState("");
   const label = text(props.label);
   const variant = text(props.variant) || "secondary";
   const rawIcon = optionalText(props.icon);
@@ -881,6 +1073,14 @@ export function Button({ props }: { props: Props }) {
     : isAction(props.action)
       ? [props.action]
       : [{ kind: "action", type: "send", text: label }];
+
+  // When an agent offers a quick "Autre" / "Other" button with a plain Send action,
+  // open an inline text input so the user can specify their answer before sending.
+  const isOtherButton =
+    isOtherOption(label) &&
+    actions.length === 1 &&
+    actions[0]?.type === "send" &&
+    isOtherOption(actions[0].text);
 
   const bg =
     variant === "primary"
@@ -893,26 +1093,79 @@ export function Button({ props }: { props: Props }) {
       ? theme.colors.accentForeground
       : theme.colors.foreground;
 
+  const submitOther = () => {
+    const clean = otherDraft.trim();
+    if (!clean) return;
+    setOtherOpen(false);
+    setOtherDraft("");
+    void run([{ kind: "action", type: "send", text: clean }]);
+  };
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => void run(actions)}
-      style={{
-        alignSelf: "flex-start",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 8,
-        backgroundColor: bg,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: variant === "secondary" ? theme.colors.border : bg,
-      }}
-    >
-      {iconName ? <Icon name={iconName} size={14} color={fg} /> : null}
-      <Text style={{ color: fg, fontSize: 12.5, fontWeight: "600" }}>{label}</Text>
-    </Pressable>
+    <View style={{ gap: 6 }}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          if (isOtherButton) {
+            setOtherOpen((open) => !open);
+          } else {
+            void run(actions);
+          }
+        }}
+        style={{
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingHorizontal: 12,
+          paddingVertical: 7,
+          borderRadius: 8,
+          backgroundColor: bg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: otherOpen ? theme.colors.accent : variant === "secondary" ? theme.colors.border : bg,
+        }}
+      >
+        {iconName ? <Icon name={iconName} size={14} color={fg} /> : null}
+        <Text style={{ color: fg, fontSize: 12.5, fontWeight: "600" }}>{label}</Text>
+      </Pressable>
+      {isOtherButton && otherOpen ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 220 }}>
+          <TextInput
+            value={otherDraft}
+            onChangeText={setOtherDraft}
+            onSubmitEditing={submitOther}
+            placeholder="Précisez votre réponse…"
+            placeholderTextColor={theme.colors.foregroundMuted}
+            style={{
+              flex: 1,
+              borderRadius: 8,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.colors.accent,
+              backgroundColor: theme.colors.surface2,
+              color: theme.colors.foreground,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              fontSize: 12.5,
+            }}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={submitOther}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 7,
+              borderRadius: 8,
+              backgroundColor: theme.colors.accent,
+              opacity: otherDraft.trim() ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ color: theme.colors.accentForeground, fontSize: 12.5, fontWeight: "600" }}>
+              Envoyer
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
