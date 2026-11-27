@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { examplesReport } from "../server/data-source";
-import { decodeDdgUrl, htmlToMarkdown, parseDdgHtml } from "../server/web/research";
+import { decodeDdgUrl, htmlToMarkdown, parseBingRss, parseDdgHtml, parseWikipediaSearch } from "../server/web/research";
 import { checkSpec } from "./fallback";
 import { buildFullInstructions, buildMcpSkillInstructions } from "./instructions";
 import {
@@ -187,6 +187,22 @@ describe("genui MCP server", () => {
       '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fpola.rs%2F">Polars</a><a class="result__snippet">Fast DataFrames</a>',
     );
     expect(parsed).toEqual([{ title: "Polars", url: "https://pola.rs/", snippet: "Fast DataFrames" }]);
+
+    const bing = parseBingRss(
+      '<rss><channel><item><title><![CDATA[Polars — DataFrames]]></title><link>https://pola.rs/</link><description>Fast in Rust</description></item></channel></rss>',
+    );
+    expect(bing).toEqual([{ title: "Polars — DataFrames", url: "https://pola.rs/", snippet: "Fast in Rust" }]);
+
+    const wiki = parseWikipediaSearch(
+      JSON.stringify({ query: { search: [{ title: "Polars (software)", snippet: "<b>Polars</b> is fast" }] } }),
+    );
+    expect(wiki).toEqual([
+      {
+        title: "Polars (software)",
+        url: "https://en.wikipedia.org/wiki/Polars_(software)",
+        snippet: "Polars is fast",
+      },
+    ]);
 
     const md = htmlToMarkdown(
       "<html><head><title>Doc &amp; Guide</title><style>body{}</style></head><body><nav>Menu</nav><main><h1>Intro</h1><p>Read <a href=\"https://example.com\">more</a>.</p></main></body></html>",

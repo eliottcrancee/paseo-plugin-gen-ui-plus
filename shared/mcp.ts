@@ -63,6 +63,7 @@ export interface McpDeps {
   readonly webFetch?: (
     url: string,
     maxChars?: number,
+    offset?: number,
   ) => Promise<
     | {
         readonly ok: true;
@@ -70,6 +71,9 @@ export interface McpDeps {
         readonly title: string | null;
         readonly contentType: string;
         readonly content: string;
+        readonly offset?: number;
+        readonly totalChars?: number;
+        readonly nextOffset?: number | null;
         readonly truncated: boolean;
       }
     | { readonly ok: false; readonly error: string }
@@ -188,7 +192,7 @@ export const GENUI_MCP_TOOLS: readonly McpToolDefinition[] = [
   {
     name: "web_fetch",
     description:
-      "Fetch an HTTPS web page or JSON/text endpoint locally (with private-IP SSRF protection) and return clean readable Markdown/text.",
+      "Fetch an HTTPS web page or JSON/text endpoint locally (with private-IP SSRF protection) and return clean readable Markdown/text. Supports `offset` pagination for long pages.",
     inputSchema: {
       type: "object",
       properties: {
@@ -198,9 +202,14 @@ export const GENUI_MCP_TOOLS: readonly McpToolDefinition[] = [
         },
         maxChars: {
           type: "number",
-          minimum: 500,
+          minimum: 100,
           maximum: 40000,
           description: "Maximum characters to return (default: 16000).",
+        },
+        offset: {
+          type: "number",
+          minimum: 0,
+          description: "Character offset to start reading from (default: 0, for paginating long pages).",
         },
       },
       required: ["url"],
@@ -441,7 +450,8 @@ export async function callGenuiMcpTool(
         };
       }
       const maxChars = typeof input.maxChars === "number" && Number.isFinite(input.maxChars) ? input.maxChars : 16_000;
-      const res = await deps.webFetch(url, maxChars);
+      const offset = typeof input.offset === "number" && Number.isFinite(input.offset) ? input.offset : 0;
+      const res = await deps.webFetch(url, maxChars, offset);
       if (!res.ok) {
         return { isError: true, content: [{ type: "text", text: `web_fetch failed: ${res.error}` }] };
       }

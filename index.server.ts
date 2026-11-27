@@ -127,7 +127,7 @@ export default function contribute(server: PluginServerContext) {
           findImage,
         ),
       webSearch: (query, limit) => runWebSearch(query, limit),
-      webFetch: (url, maxChars) => runWebFetch(url, maxChars),
+      webFetch: (url, maxChars, offset) => runWebFetch(url, maxChars, offset),
     }).catch((err) => {
       bridgePromise = null;
       throw err;

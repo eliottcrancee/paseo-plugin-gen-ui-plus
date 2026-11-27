@@ -7,7 +7,7 @@ export interface SearchHit {
 }
 
 export type WebSearchResult =
-  | { readonly ok: true; readonly query: string; readonly results: readonly SearchHit[] }
+  | { readonly ok: true; readonly query: string; readonly source: string; readonly results: readonly SearchHit[] }
   | { readonly ok: false; readonly error: string };
 
 export type WebFetchResult =
@@ -17,12 +17,16 @@ export type WebFetchResult =
       readonly title: string | null;
       readonly contentType: string;
       readonly content: string;
+      readonly offset: number;
+      readonly totalChars: number;
+      readonly nextOffset: number | null;
       readonly truncated: boolean;
     }
   | { readonly ok: false; readonly error: string };
 
 const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_CHARS = 16_000;
+const MIN_MAX_CHARS = 100;
 const HARD_MAX_CHARS = 40_000;
 
 const NAMED_ENTITIES: Readonly<Record<string, string>> = {
@@ -61,6 +65,11 @@ function stripTags(html: string): string {
     .trim();
 }
 
+function unwrapCdata(raw: string): string {
+  const m = /^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/.exec(raw);
+  return m ? m[1]! : raw;
+}
+
 export function decodeDdgUrl(rawHref: string): string {
   const href = decodeEntities(rawHref.trim());
   const normalized = href.startsWith("//") ? `https:${href}` : href;
@@ -75,12 +84,32 @@ export function decodeDdgUrl(rawHref: string): string {
   return href;
 }
 
+/** Parses search results from Bing's RSS feed (`https://www.bing.com/search?q=...&format=rss`). */
+export function parseBingRss(xml: string, limit = 6): SearchHit[] {
+  const hits: SearchHit[] = [];
+  const seen = new Set<string>();
+  const itemRe = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = itemRe.exec(xml)) !== null && hits.length < limit) {
+    const block = m[1] ?? "";
+    const titleRaw = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(block)?.[1] ?? "";
+    const linkRaw = /<link[^>]*>([\s\S]*?)<\/link>/i.exec(block)?.[1] ?? "";
+    const descRaw = /<description[^>]*>([\s\S]*?)<\/description>/i.exec(block)?.[1] ?? "";
+    const title = stripTags(unwrapCdata(titleRaw));
+    const url = decodeEntities(unwrapCdata(linkRaw).trim());
+    const snippet = stripTags(unwrapCdata(descRaw));
+    if (!title || !url || !/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    hits.push({ title, url, snippet });
+  }
+  return hits;
+}
+
 /** Parses search results from DuckDuckGo's HTML or Lite page. */
 export function parseDdgHtml(html: string, limit = 6): SearchHit[] {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
 
-  // Standard html.duckduckgo.com markup: <a class="result__a" href="...">Title</a> ... <a class="result__snippet">...</a>
   const linkRe = /<a[^>]*class="[^"]*\bresult__a\b[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   const snippetRe = /<(?:a|div|span)[^>]*class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|span)>/gi;
 
@@ -107,7 +136,6 @@ export function parseDdgHtml(html: string, limit = 6): SearchHit[] {
     hits.push({ title: cur.title, url: cur.url, snippet: snip });
   }
 
-  // Fallback: lite.duckduckgo.com uses <a rel="nofollow" href="..." class='result-link'>
   if (hits.length === 0) {
     const liteRe = /<a[^>]*class=['"]result-link['"][^>]*href=['"]([^'"]+)['"][^>]*>([\s\S]*?)<\/a>/gi;
     while ((m = liteRe.exec(html)) !== null && hits.length < limit) {
@@ -122,23 +150,40 @@ export function parseDdgHtml(html: string, limit = 6): SearchHit[] {
   return hits;
 }
 
+/** Parses Wikipedia MediaWiki search API results as a reliable factual fallback. */
+export function parseWikipediaSearch(rawJson: string, limit = 6): SearchHit[] {
+  try {
+    const data = JSON.parse(rawJson) as {
+      query?: { search?: { title?: string; snippet?: string }[] };
+    };
+    const items = data.query?.search ?? [];
+    return items
+      .filter((item): item is { title: string; snippet?: string } => typeof item.title === "string" && item.title !== "")
+      .slice(0, limit)
+      .map((item) => ({
+        title: item.title,
+        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, "_"))}`,
+        snippet: stripTags(item.snippet ?? ""),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 /** Converts an HTML document to clean, readable Markdown/plain text. */
 export function htmlToMarkdown(html: string): { title: string | null; text: string } {
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
   const title = titleMatch ? stripTags(titleMatch[1] ?? "") || null : null;
 
-  // Prefer <main> or <article> when present and substantial.
   const mainMatch =
     /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html) ?? /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html);
   let body = mainMatch && mainMatch[1] && mainMatch[1].length > 400 ? mainMatch[1] : html;
 
-  // Drop non-content blocks.
   body = body
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<(script|style|noscript|svg|iframe|template|head)\b[^>]*>[\s\S]*?<\/\1>/gi, "")
     .replace(/<(nav|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
 
-  // Convert structural elements to lightweight Markdown.
   body = body
     .replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (_, inner: string) => `\n\`\`\`\n${stripTags(inner)}\n\`\`\`\n`)
     .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, lvl: string, inner: string) => {
@@ -177,37 +222,72 @@ export async function runWebSearch(query: string, limit = 6): Promise<WebSearchR
   if (!cleanQuery) return { ok: false, error: "Query is empty" };
   const clampedLimit = Math.max(1, Math.min(12, Math.round(limit)));
 
-  const endpoints = [
-    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanQuery)}`,
-    `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(cleanQuery)}`,
+  const backends: {
+    name: string;
+    url: string;
+    accept: string;
+    parse: (body: string) => SearchHit[];
+  }[] = [
+    {
+      name: "bing-rss",
+      url: `https://www.bing.com/search?q=${encodeURIComponent(cleanQuery)}&format=rss&count=${clampedLimit}`,
+      accept: "application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
+      parse: (body) => parseBingRss(body, clampedLimit),
+    },
+    {
+      name: "duckduckgo-html",
+      url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanQuery)}`,
+      accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+      parse: (body) => parseDdgHtml(body, clampedLimit),
+    },
+    {
+      name: "duckduckgo-lite",
+      url: `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(cleanQuery)}`,
+      accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+      parse: (body) => parseDdgHtml(body, clampedLimit),
+    },
+    {
+      name: "wikipedia",
+      url: `https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=${clampedLimit}&srsearch=${encodeURIComponent(cleanQuery)}`,
+      accept: "application/json",
+      parse: (body) => parseWikipediaSearch(body, clampedLimit),
+    },
   ];
 
-  let lastError = "No results found";
-  for (const endpoint of endpoints) {
-    const res = await safeGet(endpoint, {
-      accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+  const errors: string[] = [];
+  for (const backend of backends) {
+    const res = await safeGet(backend.url, {
+      accept: backend.accept,
       maxBytes: MAX_PAGE_BYTES,
-      timeoutMs: 12_000,
+      timeoutMs: 10_000,
       headers: { "accept-language": "en-US,en;q=0.9" },
     });
     if (!res.ok) {
-      lastError = res.error;
+      errors.push(`${backend.name}: ${res.error}`);
       continue;
     }
-    const html = res.body.toString("utf8");
-    const results = parseDdgHtml(html, clampedLimit);
+    const results = backend.parse(res.body.toString("utf8"));
     if (results.length > 0) {
-      return { ok: true, query: cleanQuery, results };
+      return { ok: true, query: cleanQuery, source: backend.name, results };
     }
+    errors.push(`${backend.name}: 0 results`);
   }
 
-  return { ok: false, error: lastError };
+  return {
+    ok: false,
+    error: `All local search backends failed or rate-limited (${errors.join("; ")})`,
+  };
 }
 
-export async function runWebFetch(url: string, maxChars = DEFAULT_MAX_CHARS): Promise<WebFetchResult> {
+export async function runWebFetch(
+  url: string,
+  maxChars = DEFAULT_MAX_CHARS,
+  offset = 0,
+): Promise<WebFetchResult> {
   const cleanUrl = url.trim();
   if (!cleanUrl) return { ok: false, error: "URL is empty" };
-  const cap = Math.max(500, Math.min(HARD_MAX_CHARS, Math.round(maxChars)));
+  const cap = Math.max(MIN_MAX_CHARS, Math.min(HARD_MAX_CHARS, Math.round(maxChars)));
+  const start = Math.max(0, Math.round(offset));
 
   const res = await safeGet(cleanUrl, {
     accept: "text/markdown,text/html,application/json,text/plain;q=0.9,*/*;q=0.5",
@@ -230,8 +310,14 @@ export async function runWebFetch(url: string, maxChars = DEFAULT_MAX_CHARS): Pr
     text = raw.trim();
   }
 
-  const truncated = text.length > cap;
-  const content = truncated ? `${text.slice(0, cap)}\n\n…[truncated at ${cap} chars]` : text;
+  const totalChars = text.length;
+  const slice = text.slice(start, start + cap);
+  const end = start + slice.length;
+  const truncated = end < totalChars;
+  const nextOffset = truncated ? end : null;
+  const content = truncated
+    ? `${slice}\n\n…[showing chars ${start}–${end} of ${totalChars}; call web_fetch with offset: ${end} to continue]`
+    : slice;
 
   return {
     ok: true,
@@ -239,6 +325,9 @@ export async function runWebFetch(url: string, maxChars = DEFAULT_MAX_CHARS): Pr
     title,
     contentType,
     content,
+    offset: start,
+    totalChars,
+    nextOffset,
     truncated,
   };
 }
