@@ -324,7 +324,7 @@ export function LoadedImageView({
       ? Math.max(80, Math.min(420, Math.round(frameWidth / aspect)))
       : height;
 
-  const picture = (frameHeight: number) => (
+  const picture = () => (
     <RNImage
       source={{ uri: state.url }}
       accessibilityLabel={alt ?? src}
@@ -352,10 +352,10 @@ export function LoadedImageView({
     >
       {zoomable ? (
         <Pressable accessibilityRole="imagebutton" accessibilityLabel={`View ${alt ?? src} full size`} onPress={() => setZoomed(true)}>
-          {picture(height)}
+          {picture()}
         </Pressable>
       ) : (
-        picture(height)
+        picture()
       )}
       {alt ? (
         <RNText style={{ color: theme.colors.foregroundMuted, fontSize: 11.5 }}>{alt}</RNText>
