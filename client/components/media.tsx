@@ -5,7 +5,14 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Image as RNImage, Pressable, StyleSheet, Text, View } from "react-native";
 import { fitView, project, tileZoom, toScreen, visibleTiles, zoomAround } from "../../shared/logic/mapMath";
 import { hotspotPoints, imageRef } from "../../shared/logic/references-model";
-import { formatAudioTime, nextRate, rateLabel, resamplePeaks, waveformBars } from "../../shared/logic/audio-logic";
+import {
+  estimateAudioDurationFromDataUrl,
+  formatAudioTime,
+  nextRate,
+  rateLabel,
+  resamplePeaks,
+  waveformBars,
+} from "../../shared/logic/audio-logic";
 import { asRecord, finiteNumber, list, optionalText, text, type Props } from "../../shared/logic/values";
 import { useGeocodePlace, useImageSearch, useMapTileLoader } from "../loaders";
 import { ErrorLine } from "../node-renderer";
@@ -580,17 +587,33 @@ function AudioBubble({
   const { snapshot, controller } = useWebAudio(url, rich);
   const [rate, setRate] = useState(1);
   const [hostPlaying, setHostPlaying] = useState(false);
+  const [hostTime, setHostTime] = useState(0);
   const barCount = compact ? 48 : 72;
   const fallbackBars = useMemo(() => waveformBars(src, barCount), [src, barCount]);
   const bars = useAudioBars(url, barCount, fallbackBars);
+  const estimatedDuration = useMemo(() => (rich ? 0 : estimateAudioDurationFromDataUrl(url)), [rich, url]);
 
   useEffect(() => {
     controller?.setRate(rate);
   }, [controller, rate]);
 
+  useEffect(() => {
+    if (rich || !hostPlaying) {
+      if (!hostPlaying) setHostTime(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      const elapsed = (Date.now() - startedAt) / 1000;
+      setHostTime(estimatedDuration > 0 ? Math.min(estimatedDuration, elapsed) : elapsed);
+    }, 100);
+    return () => clearInterval(id);
+  }, [rich, hostPlaying, estimatedDuration]);
+
   const playing = rich ? snapshot.playing : hostPlaying;
-  const duration = snapshot.duration;
-  const ratio = duration > 0 ? Math.min(1, snapshot.time / duration) : 0;
+  const duration = rich ? snapshot.duration : estimatedDuration;
+  const currentTime = rich ? snapshot.time : hostTime;
+  const ratio = duration > 0 ? Math.min(1, currentTime / duration) : 0;
 
   const toggle = () => {
     if (rich) {
@@ -659,7 +682,7 @@ function AudioBubble({
         />
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, fontFamily: "monospace" }}>
-            {formatAudioTime(snapshot.time)} / {formatAudioTime(duration)}
+            {formatAudioTime(currentTime)} / {formatAudioTime(duration)}
           </Text>
           {rich ? (
             <Pressable

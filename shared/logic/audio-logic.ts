@@ -72,3 +72,31 @@ export function resamplePeaks(peaks: readonly number[], count: number): number[]
   }
   return bars;
 }
+
+/**
+ * Estimate duration in seconds from a `data:audio/...;base64,...` URL.
+ * Supports WAV (RIFF/WAVE header) accurately; returns 0 for unsupported formats.
+ */
+export function estimateAudioDurationFromDataUrl(dataUrl: string): number {
+  const comma = dataUrl.indexOf(",");
+  if (comma === -1) return 0;
+  const header = dataUrl.slice(0, comma).toLowerCase();
+  if (!header.includes("wav")) return 0;
+  const b64 = dataUrl.slice(comma + 1);
+  if (b64.length < 60) return 0;
+  try {
+    const bin = atob(b64.slice(0, 64));
+    if (bin.length < 32 || bin.slice(0, 4) !== "RIFF" || bin.slice(8, 12) !== "WAVE") return 0;
+    const byteRate =
+      bin.charCodeAt(28) |
+      (bin.charCodeAt(29) << 8) |
+      (bin.charCodeAt(30) << 16) |
+      (bin.charCodeAt(31) << 24);
+    if (byteRate <= 0) return 0;
+    const totalBytes = Math.floor((b64.length * 3) / 4);
+    const dataBytes = Math.max(0, totalBytes - 44);
+    return dataBytes / byteRate;
+  } catch {
+    return 0;
+  }
+}
