@@ -95,8 +95,10 @@ import {
   deleteLocalSkill,
   listInstalledSkills,
   listSkillRepos,
+  readSkillForMcp,
   removeSkillRepo,
   saveLocalSkill,
+  searchSkillsForMcp,
   updateSkillRepo,
 } from "./server/skills";
 
@@ -156,6 +158,8 @@ export default function contribute(server: PluginServerContext) {
         ),
       webSearch: (query, limit) => runWebSearch(query, limit),
       webFetch: (url, maxChars, offset) => runWebFetch(url, maxChars, offset),
+      skillsSearch: (query, limit, cwd) => searchSkillsForMcp(query, limit, cwd),
+      skillsRead: (name, cwd) => readSkillForMcp(name, cwd),
     }).catch((err) => {
       bridgePromise = null;
       throw err;

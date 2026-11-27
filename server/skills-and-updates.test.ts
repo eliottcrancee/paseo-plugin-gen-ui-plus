@@ -8,8 +8,10 @@ import {
   formatSkillMarkdown,
   normalizeGitRepoUrl,
   parseSkillMarkdown,
+  readSkillForMcp,
   sanitizeSkillSlug,
   saveLocalSkill,
+  searchSkillsForMcp,
 } from "./skills";
 
 const tempDirs: string[] = [];
@@ -74,5 +76,28 @@ describe("skills management & plugin update helpers", () => {
     const delOk = deleteLocalSkill(skillFile, [root]);
     expect(delOk.ok).toBe(true);
     expect(existsSync(skillDir)).toBe(false);
+  });
+
+  it("searches and reads lazy MCP skills without loading eager ones by default", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "genui-lazy-home-"));
+    tempDirs.push(fakeHome);
+    const fs = await import("node:fs");
+    const polarsDir = join(fakeHome, ".paseo", "genui-lazy-skills", "polars");
+    fs.mkdirSync(polarsDir, { recursive: true });
+    writeFileSync(
+      join(polarsDir, "SKILL.md"),
+      formatSkillMarkdown("polars", "Fast DataFrame transformations in Python with Polars", "Always prefer lazy() and collect()."),
+      "utf8",
+    );
+
+    const searchRes = searchSkillsForMcp("polars", 10, null, fakeHome);
+    expect(searchRes).toContain("polars");
+    expect(searchRes).toContain("lazy");
+
+    const readRes = readSkillForMcp("polars", null, fakeHome);
+    expect(readRes.ok).toBe(true);
+    if (readRes.ok) {
+      expect(readRes.text).toContain("Always prefer lazy() and collect().");
+    }
   });
 });

@@ -154,6 +154,8 @@ export const GENUI_MCP_TOOL_NAMES = [
   "genui_check_ui",
   "web_search",
   "web_fetch",
+  "skills_search",
+  "skills_read",
 ] as const;
 
 export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: readonly string[] = []): string {
@@ -218,14 +220,15 @@ export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: rea
     "- `genui_list_components(group?, query?)` — Discover components by group or keyword.",
     "- `genui_guide(topic?)` — Deep-dive guides (`syntax`, `charts`, `math`, `code-work`, `reliability`, `all`, or any group/component name).",
     "- `genui_check_ui(spec)` — **ALWAYS call before sending non-trivial ```ui blocks** to catch syntax, param, and `Load(...)` errors before rendering.",
+    "- `skills_search(query?, limit?)` & `skills_read(name)` — Search & load lazy domain skills on demand.",
     ...(webLookups
-      ? ["- `web_search(query, limit?)` & `web_fetch(url, maxChars?, offset?)` — Local web search and HTTPS page reader (with `offset` pagination)."]
+      ? ["- `web_search(query, limit?)` & `web_fetch(url, maxChars?, offset?)` — Local web search & HTTPS page reader."]
       : []),
     "",
-    "## Gen-UI Plus Configuration & Commands (when the user asks)",
-    "- **Gen-UI Plus sidebar hub**: 4 tabs — **Gallery** (87 components), **Playground** (live editor), **MCP Servers** (add/toggle custom `stdio`/`http`/`sse` MCP servers with `${ENV_VAR}` expansion across all harnesses), and **Skills** (browse/inspect installed `SKILL.md` files; also accessible via the **Skills** composer pill).",
-    "- **Settings → Plugins → Gen-UI Plus**: toggle auto-instructions, MCP vs full prompt mode, `webLookups`, and `extraFolders` (additional directories `Load`/`Snippet`/`Image` may read).",
-    "- **Slash commands**: `/genui-context` (inspect initial context & token breakdown without calling the LLM), `/genui-demo [Component]`, `/genui-gallery`, `/genui [prompt]`.",
+    "## Gen-UI Plus Configuration & Commands",
+    "- **Sidebar hub**: **Gallery** (87 components), **Playground**, **MCP Servers** (`stdio`/`http`/`sse` + OAuth + `${ENV_VAR}`), **Skills** (local/Git, eager or lazy MCP; also via composer pill).",
+    "- **Settings → Plugins → Gen-UI Plus**: auto-instructions, MCP vs full mode, `webLookups`, `extraFolders`.",
+    "- **Commands**: `/genui-context`, `/genui-demo [Component]`, `/genui-gallery`, `/genui [prompt]`.",
   ];
   if (!webLookups) {
     lines.push("", WEB_LOOKUPS_OFF);

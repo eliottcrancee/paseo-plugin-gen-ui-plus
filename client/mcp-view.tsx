@@ -419,7 +419,7 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
           </Text>
         </View>
         <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
-          genui_guide · genui_list_components · genui_examples · genui_check_ui · web_search · web_fetch
+          genui_guide · genui_list_components · genui_examples · genui_check_ui · web_search · web_fetch · skills_search · skills_read
         </Text>
       </View>
 

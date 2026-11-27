@@ -78,6 +78,11 @@ export interface McpDeps {
       }
     | { readonly ok: false; readonly error: string }
   >;
+  readonly skillsSearch?: (query?: string, limit?: number, cwd?: string | null) => Promise<string> | string;
+  readonly skillsRead?: (
+    name: string,
+    cwd?: string | null,
+  ) => Promise<{ readonly ok: true; readonly text: string } | { readonly ok: false; readonly error: string }> | { readonly ok: true; readonly text: string } | { readonly ok: false; readonly error: string };
 }
 
 export interface JsonRpcRequest {
@@ -212,6 +217,43 @@ export const GENUI_MCP_TOOLS: readonly McpToolDefinition[] = [
         },
       },
       required: ["url"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "skills_search",
+    description:
+      "Search lazy-loaded SKILL.md libraries by keyword (or omit query to list available skills) without bloating startup context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Optional keyword(s) to match skill names, descriptions, or sources (e.g. polars, dbt, sql).",
+        },
+        limit: {
+          type: "number",
+          minimum: 1,
+          maximum: 50,
+          description: "Maximum number of skills to return (default: 15).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "skills_read",
+    description:
+      "Load the full SKILL.md instructions for a named skill found via `skills_search`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Exact or partial skill name to load.",
+        },
+      },
+      required: ["name"],
       additionalProperties: false,
     },
   },
@@ -500,6 +542,31 @@ export async function callGenuiMcpTool(
       return {
         content: [{ type: "text", text: `${header}\n\n${res.content}` }],
       };
+    }
+
+    case "skills_search": {
+      if (!deps.skillsSearch) {
+        return { isError: true, content: [{ type: "text", text: "skills_search is not available in this host." }] };
+      }
+      const query = typeof input.query === "string" ? input.query : undefined;
+      const limit = typeof input.limit === "number" ? input.limit : undefined;
+      const text = await deps.skillsSearch(query, limit, ctx.cwd ?? null);
+      return { content: [{ type: "text", text }] };
+    }
+
+    case "skills_read": {
+      if (!deps.skillsRead) {
+        return { isError: true, content: [{ type: "text", text: "skills_read is not available in this host." }] };
+      }
+      const skillName = typeof input.name === "string" ? input.name.trim() : "";
+      if (!skillName) {
+        return { isError: true, content: [{ type: "text", text: "Provide a non-empty `name` string." }] };
+      }
+      const res = await deps.skillsRead(skillName, ctx.cwd ?? null);
+      if (!res.ok) {
+        return { isError: true, content: [{ type: "text", text: res.error }] };
+      }
+      return { content: [{ type: "text", text: res.text }] };
     }
 
     default:

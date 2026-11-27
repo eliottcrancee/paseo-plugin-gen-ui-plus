@@ -70,6 +70,8 @@ describe("genui MCP server", () => {
       "genui_check_ui",
       "web_search",
       "web_fetch",
+      "skills_search",
+      "skills_read",
     ]);
   });
 

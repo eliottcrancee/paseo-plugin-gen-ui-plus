@@ -16,13 +16,14 @@ import {
 } from "../shared/rpc";
 import { MarkdownText } from "./markdown";
 
-type SkillScope = "agents" | "pi" | "claude" | "codex";
+type SkillScope = "lazy" | "agents" | "pi" | "claude" | "codex";
 
 const SCOPE_LABELS: Record<SkillScope, string> = {
-  agents: "~/.agents/skills (all harnesses)",
-  pi: "~/.pi/agent/skills",
-  claude: "~/.claude/skills",
-  codex: "~/.codex/skills",
+  lazy: "Lazy (MCP · 0 startup tokens)",
+  agents: "Eager (~/.agents/skills)",
+  pi: "Pi (~/.pi/agent/skills)",
+  claude: "Claude (~/.claude/skills)",
+  codex: "Codex (~/.codex/skills)",
 };
 
 export function SkillsView({
@@ -66,13 +67,14 @@ export function SkillsView({
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newBody, setNewBody] = useState("");
-  const [newScope, setNewScope] = useState<SkillScope>("agents");
+  const [newScope, setNewScope] = useState<SkillScope>("lazy");
   const [creatingSkill, setCreatingSkill] = useState(false);
 
   // Add Git repo state
   const [showAddRepo, setShowAddRepo] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
   const [repoBranch, setRepoBranch] = useState("");
+  const [repoMode, setRepoMode] = useState<"lazy" | "eager">("lazy");
   const [addingRepo, setAddingRepo] = useState(false);
   const [updatingRepoId, setUpdatingRepoId] = useState<string | null>(null);
 
@@ -229,6 +231,7 @@ export function SkillsView({
       const res = await addRepo({
         url: repoUrl.trim(),
         ...(repoBranch.trim() ? { branch: repoBranch.trim() } : {}),
+        mode: repoMode,
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -546,7 +549,7 @@ export function SkillsView({
             Create local skill
           </Text>
           <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-            {(["agents", "pi", "claude", "codex"] as const).map((scope) => {
+            {(["lazy", "agents", "pi", "claude", "codex"] as const).map((scope) => {
               const active = newScope === scope;
               return (
                 <Pressable
@@ -643,8 +646,42 @@ export function SkillsView({
             placeholderTextColor={theme.colors.foregroundMuted}
             style={inputStyle}
           />
+          <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+            {(
+              [
+                { id: "lazy", label: "Lazy (MCP · 0 startup tokens)" },
+                { id: "eager", label: "Eager (~/.agents/skills)" },
+              ] as const
+            ).map((opt) => {
+              const active = repoMode === opt.id;
+              return (
+                <Pressable
+                  key={opt.id}
+                  onPress={() => setRepoMode(opt.id)}
+                  style={{
+                    paddingHorizontal: 9,
+                    paddingVertical: 4,
+                    borderRadius: 6,
+                    backgroundColor: active ? theme.colors.accent : theme.colors.surface1,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: active ? theme.colors.accentForeground : theme.colors.foreground,
+                      fontSize: 11.5,
+                      fontWeight: active ? "600" : "400",
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11.5 }}>
-            Discovers every SKILL.md in the repository and symlinks them into ~/.agents/skills so all harnesses pick them up.
+            {repoMode === "lazy"
+              ? "Stores skills in ~/.paseo/genui-lazy-skills — agents discover them on demand via skills_search / skills_read without bloating startup context."
+              : "Symlinks skills into ~/.agents/skills so every harness loads their descriptions at session startup."}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -702,7 +739,7 @@ export function SkillsView({
                         {repo.id}
                       </Text>
                       <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, fontFamily: "monospace" }}>
-                        {repo.branch}@{repo.currentSha.slice(0, 7)} · {repo.installedSkills.length} skill{repo.installedSkills.length === 1 ? "" : "s"}
+                        {repo.mode === "lazy" ? "lazy·MCP" : "eager"} · {repo.branch}@{repo.currentSha.slice(0, 7)} · {repo.installedSkills.length} skill{repo.installedSkills.length === 1 ? "" : "s"}
                       </Text>
                       {repo.hasUpdate ? (
                         <Text style={{ color: theme.colors.accent, fontSize: 11, fontWeight: "700" }}>
@@ -810,7 +847,7 @@ export function SkillsView({
                     {skill.name}
                   </Text>
                   <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, fontFamily: "monospace" }}>
-                    {skill.source} · ~{skill.frontmatterTokens} tok
+                    {skill.lazy ? `lazy·MCP (${skill.source})` : skill.source} · ~{skill.frontmatterTokens} tok
                   </Text>
                 </View>
                 {skill.description ? (

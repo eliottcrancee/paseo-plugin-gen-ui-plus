@@ -24,7 +24,7 @@ const execFileAsync = promisify(execFile);
 
 type PaseoApi = PluginHandlerContext["paseo"];
 
-export type SkillRootScope = "agents" | "pi" | "claude" | "codex";
+export type SkillRootScope = "lazy" | "agents" | "pi" | "claude" | "codex";
 
 export interface SkillEntry {
   readonly name: string;
@@ -34,6 +34,7 @@ export interface SkillEntry {
   readonly body: string;
   readonly raw: string;
   readonly editable: boolean;
+  readonly lazy: boolean;
   readonly repoId?: string;
   readonly frontmatterTokens: number;
   readonly fullTokens: number;
@@ -43,6 +44,7 @@ export interface StoredSkillRepo {
   id: string;
   url: string;
   branch: string;
+  mode: "eager" | "lazy";
   localPath: string;
   currentSha: string;
   installedSkills: string[];
@@ -71,6 +73,10 @@ function defaultReposManifestPath(): string {
 
 function defaultAgentsSkillsDir(): string {
   return path.join(os.homedir(), ".agents", "skills");
+}
+
+export function defaultLazySkillsDir(): string {
+  return path.join(os.homedir(), ".paseo", "genui-lazy-skills");
 }
 
 function estTokens(s: string): number {
@@ -172,7 +178,19 @@ function readReposManifest(manifestPath = defaultReposManifestPath()): StoredSki
   try {
     const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((r): r is StoredSkillRepo => typeof r === "object" && r !== null && typeof r.id === "string");
+    return parsed
+      .filter((r): r is Partial<StoredSkillRepo> & { id: string } => typeof r === "object" && r !== null && typeof (r as { id?: unknown }).id === "string")
+      .map((r) => ({
+        id: r.id,
+        url: r.url ?? "",
+        branch: r.branch ?? "main",
+        mode: r.mode === "eager" ? "eager" : "lazy",
+        localPath: r.localPath ?? "",
+        currentSha: r.currentSha ?? "",
+        installedSkills: Array.isArray(r.installedSkills) ? r.installedSkills : [],
+        addedAt: typeof r.addedAt === "number" ? r.addedAt : 0,
+        updatedAt: typeof r.updatedAt === "number" ? r.updatedAt : 0,
+      }));
   } catch {
     return [];
   }
@@ -187,6 +205,7 @@ function writeReposManifest(repos: StoredSkillRepo[], manifestPath = defaultRepo
 
 function allowedGlobalRoots(home = os.homedir()): Record<SkillRootScope, string> {
   return {
+    lazy: path.join(home, ".paseo", "genui-lazy-skills"),
     agents: path.join(home, ".agents", "skills"),
     pi: path.join(home, ".pi", "agent", "skills"),
     claude: path.join(home, ".claude", "skills"),
@@ -209,6 +228,7 @@ function isAllowedSkillFile(filePath: string, extraRoots: readonly string[] = []
 function scanDirectory(
   dir: string,
   source: string,
+  lazy: boolean,
   reposByLocalPath: ReadonlyMap<string, string>,
   seen: Set<string>,
   out: SkillEntry[],
@@ -255,6 +275,7 @@ function scanDirectory(
         body: parsed.body,
         raw,
         editable: !repoId,
+        lazy,
         ...(repoId ? { repoId } : {}),
         frontmatterTokens: estTokens(parsed.frontmatter || parsed.description),
         fullTokens: estTokens(raw),
@@ -265,22 +286,22 @@ function scanDirectory(
   }
 }
 
-export async function listInstalledSkills(paseo: PaseoApi, agentId?: string): Promise<SkillEntry[]> {
-  const cwd = agentId ? await resolveAgentCwd(paseo, agentId) : null;
-  const globalRoots = allowedGlobalRoots();
-  const roots: { dir: string; source: string }[] = [
+export function scanAllSkillsSync(cwd?: string | null, home = os.homedir()): SkillEntry[] {
+  const globalRoots = allowedGlobalRoots(home);
+  const roots: { dir: string; source: string; lazy: boolean }[] = [
     ...(cwd
       ? [
-          { dir: path.join(cwd, ".agents", "skills"), source: "workspace" },
-          { dir: path.join(cwd, ".claude", "skills"), source: "workspace" },
-          { dir: path.join(cwd, ".codex", "skills"), source: "workspace" },
-          { dir: path.join(cwd, ".pi", "skills"), source: "workspace" },
+          { dir: path.join(cwd, ".agents", "skills"), source: "workspace", lazy: false },
+          { dir: path.join(cwd, ".claude", "skills"), source: "workspace", lazy: false },
+          { dir: path.join(cwd, ".codex", "skills"), source: "workspace", lazy: false },
+          { dir: path.join(cwd, ".pi", "skills"), source: "workspace", lazy: false },
         ]
       : []),
-    { dir: globalRoots.agents, source: "agents" },
-    { dir: globalRoots.pi, source: "pi" },
-    { dir: globalRoots.claude, source: "claude" },
-    { dir: globalRoots.codex, source: "codex" },
+    { dir: globalRoots.lazy, source: "lazy", lazy: true },
+    { dir: globalRoots.agents, source: "agents", lazy: false },
+    { dir: globalRoots.pi, source: "pi", lazy: false },
+    { dir: globalRoots.claude, source: "claude", lazy: false },
+    { dir: globalRoots.codex, source: "codex", lazy: false },
   ];
 
   const repos = readReposManifest();
@@ -296,9 +317,100 @@ export async function listInstalledSkills(paseo: PaseoApi, agentId?: string): Pr
   const seen = new Set<string>();
   const out: SkillEntry[] = [];
   for (const root of roots) {
-    scanDirectory(root.dir, root.source, reposByLocalPath, seen, out);
+    scanDirectory(root.dir, root.source, root.lazy, reposByLocalPath, seen, out);
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listInstalledSkills(paseo: PaseoApi, agentId?: string): Promise<SkillEntry[]> {
+  const cwd = agentId ? await resolveAgentCwd(paseo, agentId) : null;
+  return scanAllSkillsSync(cwd);
+}
+
+/** Searches lazy (MCP-only) skills by keyword, falling back to all installed skills if requested. */
+export function searchSkillsForMcp(
+  query?: string,
+  limit = 15,
+  cwd?: string | null,
+  home = os.homedir(),
+): string {
+  const capped = Math.max(1, Math.min(50, Math.floor(limit || 15)));
+  const all = scanAllSkillsSync(cwd, home);
+  const lazySkills = all.filter((s) => s.lazy);
+  const pool = lazySkills.length > 0 ? lazySkills : all;
+
+  const q = (query ?? "").trim().toLowerCase();
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+
+  const scored = pool
+    .map((skill) => {
+      if (tokens.length === 0) return { skill, score: 1 };
+      const hayName = skill.name.toLowerCase();
+      const hayDesc = skill.description.toLowerCase();
+      const haySource = skill.source.toLowerCase();
+      let score = 0;
+      for (const tok of tokens) {
+        if (hayName === tok) score += 10;
+        else if (hayName.includes(tok)) score += 5;
+        if (hayDesc.includes(tok)) score += 2;
+        if (haySource.includes(tok)) score += 1;
+      }
+      return { skill, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name));
+
+  if (scored.length === 0) {
+    if (pool.length === 0) {
+      return "No skills installed yet. Add local or Git skills in Gen-UI Plus → Skills.";
+    }
+    return `No skills matched "${query ?? ""}" (${lazySkills.length} lazy / ${all.length} total skills installed). Try a broader keyword or omit query to list available skills.`;
+  }
+
+  const shown = scored.slice(0, capped);
+  const header = q
+    ? `Found ${scored.length} matching skill${scored.length === 1 ? "" : "s"} (showing ${shown.length}):`
+    : `Available ${lazySkills.length > 0 ? "lazy " : ""}skills (${shown.length}/${pool.length}):`;
+  const lines = [
+    header,
+    ...shown.map(({ skill }) => {
+      const desc = skill.description ? ` — ${skill.description.slice(0, 140)}` : "";
+      const tag = skill.lazy ? "lazy" : skill.source;
+      return `- ${skill.name} [${tag}, ~${skill.fullTokens} tok]${desc}`;
+    }),
+    "",
+    "Call `skills_read(name)` to load the full SKILL.md instructions for any skill above.",
+  ];
+  return lines.join("\n");
+}
+
+/** Reads the full SKILL.md instructions for a named skill (lazy or eager). */
+export function readSkillForMcp(
+  name: string,
+  cwd?: string | null,
+  home = os.homedir(),
+): { ok: true; text: string } | { ok: false; error: string } {
+  const needle = name.trim().toLowerCase();
+  if (!needle) return { ok: false, error: "Provide a skill name." };
+
+  const all = scanAllSkillsSync(cwd, home);
+  const match =
+    all.find((s) => s.name.toLowerCase() === needle) ??
+    all.find((s) => path.basename(path.dirname(s.path)).toLowerCase() === needle) ??
+    all.find((s) => s.name.toLowerCase().includes(needle));
+
+  if (!match) {
+    const sample = all.slice(0, 12).map((s) => s.name).join(", ");
+    return {
+      ok: false,
+      error: `Skill "${name}" not found.${sample ? ` Available: ${sample}` : ""} Call skills_search() to browse.`,
+    };
+  }
+
+  return {
+    ok: true,
+    text: `# Skill: ${match.name}\nSource: ${match.source}${match.lazy ? " (lazy MCP)" : ""}\nPath: ${match.path}\n\n${match.body || match.raw}`,
+  };
 }
 
 export async function saveLocalSkill(
@@ -506,7 +618,7 @@ export async function listSkillRepos(
 }
 
 export async function addSkillRepo(
-  input: { url: string; branch?: string },
+  input: { url: string; branch?: string; mode?: "eager" | "lazy" },
   opts?: { reposBaseDir?: string; manifestPath?: string; targetRoot?: string },
 ): Promise<{ ok: true; repo: SkillRepoStatus } | { ok: false; error: string }> {
   const normalizedUrl = normalizeGitRepoUrl(input.url);
@@ -514,9 +626,10 @@ export async function addSkillRepo(
     return { ok: false, error: 'Invalid Git URL. Use "owner/repo" or an https:// / git@ URL.' };
   }
 
+  const mode: "eager" | "lazy" = input.mode === "eager" ? "eager" : "lazy";
   const reposBaseDir = opts?.reposBaseDir ?? defaultReposBaseDir();
   const manifestPath = opts?.manifestPath ?? defaultReposManifestPath();
-  const targetRoot = opts?.targetRoot ?? defaultAgentsSkillsDir();
+  const targetRoot = opts?.targetRoot ?? (mode === "lazy" ? defaultLazySkillsDir() : defaultAgentsSkillsDir());
   const repos = readReposManifest(manifestPath);
 
   const existing = repos.find((r) => r.url.toLowerCase() === normalizedUrl.toLowerCase());
@@ -549,6 +662,7 @@ export async function addSkillRepo(
       id,
       url: normalizedUrl,
       branch,
+      mode,
       localPath,
       currentSha,
       installedSkills,
@@ -570,7 +684,6 @@ export async function updateSkillRepo(
   opts?: { manifestPath?: string; targetRoot?: string },
 ): Promise<{ ok: true; repo: SkillRepoStatus } | { ok: false; error: string }> {
   const manifestPath = opts?.manifestPath ?? defaultReposManifestPath();
-  const targetRoot = opts?.targetRoot ?? defaultAgentsSkillsDir();
   const repos = readReposManifest(manifestPath);
   const idx = repos.findIndex((r) => r.id === id);
   if (idx === -1) {
@@ -578,6 +691,7 @@ export async function updateSkillRepo(
   }
 
   const repo = repos[idx]!;
+  const targetRoot = opts?.targetRoot ?? (repo.mode === "lazy" ? defaultLazySkillsDir() : defaultAgentsSkillsDir());
   try {
     if (!existsSync(repo.localPath)) {
       mkdirSync(path.dirname(repo.localPath), { recursive: true });
@@ -610,13 +724,13 @@ export function removeSkillRepo(
   opts?: { manifestPath?: string; targetRoot?: string },
 ): { ok: true } | { ok: false; error: string } {
   const manifestPath = opts?.manifestPath ?? defaultReposManifestPath();
-  const targetRoot = opts?.targetRoot ?? defaultAgentsSkillsDir();
   const repos = readReposManifest(manifestPath);
   const repo = repos.find((r) => r.id === id);
   if (!repo) {
     return { ok: false, error: `Skill repository "${id}" not found.` };
   }
 
+  const targetRoot = opts?.targetRoot ?? (repo.mode === "lazy" ? defaultLazySkillsDir() : defaultAgentsSkillsDir());
   try {
     const repoReal = existsSync(repo.localPath) ? realpathSync(repo.localPath) : path.resolve(repo.localPath);
     for (const skillName of repo.installedSkills) {

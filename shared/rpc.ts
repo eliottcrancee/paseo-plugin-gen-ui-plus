@@ -250,6 +250,7 @@ export const skillEntrySchema = z.object({
   body: z.string(),
   raw: z.string(),
   editable: z.boolean(),
+  lazy: z.boolean(),
   repoId: z.string().optional(),
   frontmatterTokens: z.number(),
   fullTokens: z.number(),
@@ -267,7 +268,7 @@ export const skillsListRpc = defineRpc({
   }),
 });
 
-export const skillRootScopeSchema = z.enum(["agents", "pi", "claude", "codex"]);
+export const skillRootScopeSchema = z.enum(["lazy", "agents", "pi", "claude", "codex"]);
 
 export const skillsSaveRpc = defineRpc({
   name: "genui.skills_save",
@@ -300,6 +301,7 @@ export const skillRepoStatusSchema = z.object({
   id: z.string(),
   url: z.string(),
   branch: z.string(),
+  mode: z.enum(["eager", "lazy"]),
   localPath: z.string(),
   currentSha: z.string(),
   installedSkills: z.array(z.string()),
@@ -328,6 +330,7 @@ export const skillReposAddRpc = defineRpc({
   input: z.object({
     url: z.string().min(1).max(1024),
     branch: z.string().max(128).optional(),
+    mode: z.enum(["eager", "lazy"]).optional(),
   }),
   output: z.discriminatedUnion("ok", [
     z.object({ ok: z.literal(true), repo: skillRepoStatusSchema }),
