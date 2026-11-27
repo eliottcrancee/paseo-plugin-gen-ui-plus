@@ -36,12 +36,13 @@ describe("genui MCP server", () => {
   it("keeps the MCP skill prompt dramatically smaller than the full inline reference", () => {
     const skill = buildMcpSkillInstructions(true);
     const full = buildFullInstructions(true);
-    expect(skill.length).toBeLessThan(2600);
-    expect(skill.length).toBeLessThan(full.length * 0.16);
+    expect(skill.length).toBeLessThan(3000);
+    expect(skill.length).toBeLessThan(full.length * 0.18);
     expect(skill).toContain("genui_guide");
     expect(skill).toContain("genui_list_components");
     expect(skill).toContain("genui_examples");
     expect(skill).toContain("genui_check_ui");
+    expect(skill).toContain("neutral|good|warn|bad|info");
   });
 
   it("handles initialize, ping, notifications, and tools/list", async () => {
@@ -211,5 +212,24 @@ describe("genui MCP server", () => {
     expect(md.text).toContain("# Intro");
     expect(md.text).toContain("[more](https://example.com)");
     expect(md.text).not.toContain("Menu");
+  });
+
+  it("maps common hallucinated tone aliases like accent and muted instead of crashing the card", async () => {
+    const res = await handleMcpJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 11,
+        method: "tools/call",
+        params: {
+          name: "genui_check_ui",
+          arguments: {
+            spec: 'Card("Test", [Row([Metric("OK", "1", tone: "accent"), Metric("Note", "2", tone: "muted")])])',
+          },
+        },
+      },
+      deps,
+    );
+    const result = res?.result as { isError?: boolean; content: { text: string }[] };
+    expect(result.isError).toBe(false);
   });
 });

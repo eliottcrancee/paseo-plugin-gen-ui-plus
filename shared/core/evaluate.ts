@@ -6,6 +6,7 @@ import type { Action, Binding, Diagnostic, UiNode, UiState, Value } from "./type
 import {
   ACTION_SPECS,
   COMPONENT_SPECS,
+  coerceEnum,
   coerceState,
   DESCRIPTIONS,
   EXPECTED,
@@ -519,7 +520,11 @@ const Interpreter = defineClass(
           break;
         case "enum": {
           const values = param.values ?? [];
-          if (typeof value === "string" && values.includes(value)) return value;
+          if (typeof value === "string") {
+            if (values.includes(value)) return value;
+            const coerced = coerceEnum(param, value);
+            if (coerced !== null) return coerced;
+          }
           const got = typeof value === "string" ? JSON.stringify(value) : describe(value);
           throw new RuntimeError(arg.pos, `${label} must be one of ${values.join(", ")}; got ${got}`);
         }

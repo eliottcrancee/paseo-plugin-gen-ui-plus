@@ -115,6 +115,61 @@ export function stateMismatch(label: string, param: ParamSpec, state: string, ki
   return `${label} needs ${needs} state, but \`$${state}\` ${verb} ${DESCRIPTIONS[kind]}; declare it as \`$${state} = ${example}\``;
 }
 
+const TONE_ALIASES: Readonly<Record<string, string>> = {
+  accent: "info",
+  primary: "info",
+  blue: "info",
+  cyan: "info",
+  link: "info",
+  brand: "info",
+  active: "info",
+  muted: "neutral",
+  subtle: "neutral",
+  secondary: "neutral",
+  default: "neutral",
+  gray: "neutral",
+  grey: "neutral",
+  dim: "neutral",
+  normal: "neutral",
+  plain: "neutral",
+  success: "good",
+  ok: "good",
+  green: "good",
+  positive: "good",
+  pass: "good",
+  passed: "good",
+  healthy: "good",
+  done: "good",
+  warning: "warn",
+  amber: "warn",
+  yellow: "warn",
+  orange: "warn",
+  caution: "warn",
+  pending: "warn",
+  degraded: "warn",
+  error: "bad",
+  danger: "bad",
+  destructive: "bad",
+  red: "bad",
+  critical: "bad",
+  negative: "bad",
+  fail: "bad",
+  failed: "bad",
+  alert: "bad",
+};
+
+/** Maps common model-invented enum synonyms (like `tone: "accent"` or `"muted"`) onto valid catalog values. */
+export function coerceEnum(param: ParamSpec, value: string): string | null {
+  const values = param.values ?? [];
+  const lower = value.trim().toLowerCase();
+  if (values.includes(lower)) return lower;
+  if (param.name === "tone") {
+    const mapped = TONE_ALIASES[lower];
+    if (mapped !== undefined && values.includes(mapped)) return mapped;
+  }
+  return null;
+}
+
 /**
  * A lossless reading of a state value an input can't hold as-is, or
  * undefined when there is none: text or a number where a list is needed
@@ -681,7 +736,16 @@ const Validator = defineClass(
       if (param.kind === "enum" && slot.type === "literal" && !(slot.value === null && param.optional)) {
         const values = param.values ?? [];
         if (typeof slot.value !== "string" || !values.includes(slot.value)) {
-          this.diagnostics.report(slot.pos, `${label} must be one of ${values.join(", ")}; got ${JSON.stringify(slot.value)}`);
+          const coerced = typeof slot.value === "string" ? coerceEnum(param, slot.value) : null;
+          if (coerced !== null) {
+            this.diagnostics.report(
+              slot.pos,
+              `${label} got ${JSON.stringify(slot.value)}, mapped to ${JSON.stringify(coerced)} (allowed: ${values.join(", ")})`,
+              "warning",
+            );
+          } else {
+            this.diagnostics.report(slot.pos, `${label} must be one of ${values.join(", ")}; got ${JSON.stringify(slot.value)}`);
+          }
         }
       }
       if (param.kind === "actions") {
