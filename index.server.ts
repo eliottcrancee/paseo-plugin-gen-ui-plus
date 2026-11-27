@@ -36,10 +36,12 @@ import {
   skillReposAddRpc,
   skillReposListRpc,
   skillReposRemoveRpc,
+  skillReposToggleModeRpc,
   skillReposUpdateRpc,
   skillsDeleteRpc,
   skillsListRpc,
   skillsSaveRpc,
+  skillsToggleModeRpc,
   uiExamplesRpc,
   webGeocodeRpc,
   webImageRpc,
@@ -99,6 +101,8 @@ import {
   removeSkillRepo,
   saveLocalSkill,
   searchSkillsForMcp,
+  toggleLocalSkillMode,
+  toggleSkillRepoMode,
   updateSkillRepo,
 } from "./server/skills";
 
@@ -477,6 +481,7 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(skillsSaveRpc, (input) => saveLocalSkill(input));
   server.handle(skillsDeleteRpc, ({ path: skillPath }) => deleteLocalSkill(skillPath));
+  server.handle(skillsToggleModeRpc, ({ path: skillPath }) => toggleLocalSkillMode(skillPath));
 
   server.handle(skillReposListRpc, async ({ checkUpdates }) => ({
     repos: await listSkillRepos(Boolean(checkUpdates)),
@@ -484,6 +489,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(skillReposAddRpc, (input) => addSkillRepo(input));
   server.handle(skillReposUpdateRpc, ({ id }) => updateSkillRepo(id));
   server.handle(skillReposRemoveRpc, ({ id }) => removeSkillRepo(id));
+  server.handle(skillReposToggleModeRpc, ({ id }) => toggleSkillRepoMode(id));
 
   server.handle(pluginUpdateCheckRpc, ({ force }) => checkPluginUpdate(Boolean(force)));
 

@@ -12,6 +12,7 @@ import {
   sanitizeSkillSlug,
   saveLocalSkill,
   searchSkillsForMcp,
+  toggleLocalSkillMode,
 } from "./skills";
 
 const tempDirs: string[] = [];
@@ -98,6 +99,20 @@ describe("skills management & plugin update helpers", () => {
     expect(readRes.ok).toBe(true);
     if (readRes.ok) {
       expect(readRes.text).toContain("Always prefer lazy() and collect().");
+    }
+
+    // Toggle lazy -> eager -> lazy
+    const toEager = toggleLocalSkillMode(join(polarsDir, "SKILL.md"), fakeHome);
+    expect(toEager.ok).toBe(true);
+    if (toEager.ok) {
+      expect(toEager.lazy).toBe(false);
+      expect(toEager.path).toContain(join(".agents", "skills", "polars", "SKILL.md"));
+      const backToLazy = toggleLocalSkillMode(toEager.path, fakeHome);
+      expect(backToLazy.ok).toBe(true);
+      if (backToLazy.ok) {
+        expect(backToLazy.lazy).toBe(true);
+        expect(backToLazy.path).toContain(join(".paseo", "genui-lazy-skills", "polars", "SKILL.md"));
+      }
     }
   });
 });

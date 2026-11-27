@@ -220,7 +220,7 @@ export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: rea
     "- `genui_list_components(group?, query?)` — Discover components by group or keyword.",
     "- `genui_guide(topic?)` — Deep-dive guides (`syntax`, `charts`, `math`, `code-work`, `reliability`, `all`, or any group/component name).",
     "- `genui_check_ui(spec)` — **ALWAYS call before sending non-trivial ```ui blocks** to catch syntax, param, and `Load(...)` errors before rendering.",
-    "- `skills_search(query?, limit?)` & `skills_read(name)` — Search & load lazy domain skills on demand.",
+    "- `skills_search(query?, limit?)` & `skills_read(name)` — Before working with a specialized library or workflow, search lazy domain skills (e.g. `skills_search(\"polars\")`) and load the matching `SKILL.md` with `skills_read(name)`.",
     ...(webLookups
       ? ["- `web_search(query, limit?)` & `web_fetch(url, maxChars?, offset?)` — Local web search & HTTPS page reader."]
       : []),

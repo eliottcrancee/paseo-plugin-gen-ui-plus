@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -754,6 +755,118 @@ export function removeSkillRepo(
       manifestPath,
     );
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function removeRepoSymlinksFromRoot(repo: { localPath: string; installedSkills: readonly string[] }, targetRoot: string): void {
+  const repoReal = existsSync(repo.localPath) ? realpathSync(repo.localPath) : path.resolve(repo.localPath);
+  for (const skillName of repo.installedSkills) {
+    const linkPath = path.join(targetRoot, skillName);
+    try {
+      if (lstatSync(linkPath).isSymbolicLink()) {
+        const target = path.resolve(path.dirname(linkPath), readlinkSync(linkPath));
+        if (target === repoReal || target.startsWith(`${repoReal}${path.sep}`)) {
+          unlinkSync(linkPath);
+        }
+      }
+    } catch {
+      // Ignore missing links
+    }
+  }
+}
+
+function moveDirectory(src: string, dst: string): void {
+  mkdirSync(path.dirname(dst), { recursive: true });
+  try {
+    renameSync(src, dst);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === "EXDEV") {
+      cpSync(src, dst, { recursive: true });
+      rmSync(src, { recursive: true, force: true });
+    } else {
+      throw err;
+    }
+  }
+}
+
+/** Moves a local global skill between `~/.paseo/genui-lazy-skills` (lazy MCP) and `~/.agents/skills` (eager). */
+export function toggleLocalSkillMode(
+  skillFilePath: string,
+  home = os.homedir(),
+): { ok: true; lazy: boolean; path: string } | { ok: false; error: string } {
+  try {
+    const roots = allowedGlobalRoots(home);
+    if (path.basename(skillFilePath) !== "SKILL.md") {
+      return { ok: false, error: "Expected a SKILL.md file." };
+    }
+    const inGlobalRoot = Object.values(roots).some((root) => isPathInsideRoot(skillFilePath, root));
+    if (!inGlobalRoot) {
+      return { ok: false, error: "Only global user skills can be toggled between Lazy and Eager." };
+    }
+
+    const srcDir = path.dirname(skillFilePath);
+    if (!existsSync(srcDir)) {
+      return { ok: false, error: "Skill directory does not exist." };
+    }
+    if (lstatSync(srcDir).isSymbolicLink()) {
+      return { ok: false, error: "Git-managed skills must be toggled from their Git library row." };
+    }
+
+    const currentlyLazy = isPathInsideRoot(skillFilePath, roots.lazy);
+    const nextLazy = !currentlyLazy;
+    const dstRoot = nextLazy ? roots.lazy : roots.agents;
+    const slug = path.basename(srcDir);
+    const dstDir = path.join(dstRoot, slug);
+
+    if (existsSync(dstDir)) {
+      return {
+        ok: false,
+        error: `A skill named "${slug}" already exists in ${nextLazy ? "Lazy (MCP)" : "Eager (~/.agents/skills)"}.`,
+      };
+    }
+
+    moveDirectory(srcDir, dstDir);
+    return { ok: true, lazy: nextLazy, path: path.join(dstDir, "SKILL.md") };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Switches a Git skill library between `lazy` (`~/.paseo/genui-lazy-skills`) and `eager` (`~/.agents/skills`). */
+export function toggleSkillRepoMode(
+  id: string,
+  opts?: { manifestPath?: string; lazyRoot?: string; eagerRoot?: string },
+): { ok: true; repo: SkillRepoStatus } | { ok: false; error: string } {
+  const manifestPath = opts?.manifestPath ?? defaultReposManifestPath();
+  const lazyRoot = opts?.lazyRoot ?? defaultLazySkillsDir();
+  const eagerRoot = opts?.eagerRoot ?? defaultAgentsSkillsDir();
+  const repos = readReposManifest(manifestPath);
+  const idx = repos.findIndex((r) => r.id === id);
+  if (idx === -1) {
+    return { ok: false, error: `Skill repository "${id}" not found.` };
+  }
+
+  const repo = repos[idx]!;
+  const oldRoot = repo.mode === "lazy" ? lazyRoot : eagerRoot;
+  const nextMode: "eager" | "lazy" = repo.mode === "lazy" ? "eager" : "lazy";
+  const nextRoot = nextMode === "lazy" ? lazyRoot : eagerRoot;
+
+  try {
+    removeRepoSymlinksFromRoot(repo, oldRoot);
+    const installedSkills = syncRepoSymlinks(repo, [], nextRoot);
+    const now = Date.now();
+    const updated: StoredSkillRepo = {
+      ...repo,
+      mode: nextMode,
+      installedSkills,
+      updatedAt: now,
+    };
+    const next = [...repos];
+    next[idx] = updated;
+    writeReposManifest(next, manifestPath);
+    return { ok: true, repo: { ...updated, hasUpdate: false } };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

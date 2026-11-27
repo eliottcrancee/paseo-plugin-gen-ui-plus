@@ -297,6 +297,17 @@ export const skillsDeleteRpc = defineRpc({
   ]),
 });
 
+export const skillsToggleModeRpc = defineRpc({
+  name: "genui.skills_toggle_mode",
+  input: z.object({
+    path: z.string().min(1).max(1024),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), lazy: z.boolean(), path: z.string() }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
 export const skillRepoStatusSchema = z.object({
   id: z.string(),
   url: z.string(),
@@ -356,6 +367,17 @@ export const skillReposRemoveRpc = defineRpc({
   }),
   output: z.discriminatedUnion("ok", [
     z.object({ ok: z.literal(true) }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
+export const skillReposToggleModeRpc = defineRpc({
+  name: "genui.skill_repos_toggle_mode",
+  input: z.object({
+    id: z.string().min(1).max(128),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), repo: skillRepoStatusSchema }),
     z.object({ ok: z.literal(false), error: z.string() }),
   ]),
 });

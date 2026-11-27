@@ -7,10 +7,12 @@ import {
   skillReposAddRpc,
   skillReposListRpc,
   skillReposRemoveRpc,
+  skillReposToggleModeRpc,
   skillReposUpdateRpc,
   skillsDeleteRpc,
   skillsListRpc,
   skillsSaveRpc,
+  skillsToggleModeRpc,
   type SkillEntryDto,
   type SkillRepoStatusDto,
 } from "../shared/rpc";
@@ -41,10 +43,12 @@ export function SkillsView({
   const listSkills = useRpc(skillsListRpc);
   const saveSkill = useRpc(skillsSaveRpc);
   const deleteSkill = useRpc(skillsDeleteRpc);
+  const toggleSkillMode = useRpc(skillsToggleModeRpc);
   const listRepos = useRpc(skillReposListRpc);
   const addRepo = useRpc(skillReposAddRpc);
   const updateRepo = useRpc(skillReposUpdateRpc);
   const removeRepo = useRpc(skillReposRemoveRpc);
+  const toggleRepoMode = useRpc(skillReposToggleModeRpc);
   const toast = useToast();
 
   const manageMode = !agentId;
@@ -286,6 +290,43 @@ export function SkillsView({
     }
   };
 
+  const handleToggleSkillMode = async (skill: SkillEntryDto) => {
+    try {
+      const res = await toggleSkillMode({ path: skill.path });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.show(
+        `"${skill.name}" is now ${res.lazy ? "Lazy (MCP · 0 startup tokens)" : "Eager (~/.agents/skills)"}`,
+        { variant: "success" },
+      );
+      if (selected?.path === skill.path) {
+        setSelected(null);
+      }
+      await reloadAll(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleToggleRepoMode = async (repo: SkillRepoStatusDto) => {
+    try {
+      const res = await toggleRepoMode({ id: repo.id });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.show(
+        `"${repo.id}" switched to ${res.repo.mode === "lazy" ? "Lazy (MCP)" : "Eager (~/.agents/skills)"}`,
+        { variant: "success" },
+      );
+      await reloadAll(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   if (selected) {
     return (
       <ScrollView contentContainerStyle={{ padding: compact ? 10 : 14, gap: 12 }}>
@@ -307,6 +348,30 @@ export function SkillsView({
             </Text>
             {manageMode && selected.editable ? (
               <>
+                {selected.source !== "workspace" ? (
+                  <Pressable
+                    accessibilityRole="switch"
+                    onPress={() => void handleToggleSkillMode(selected)}
+                    style={{
+                      paddingHorizontal: 9,
+                      paddingVertical: 4,
+                      borderRadius: 999,
+                      backgroundColor: selected.lazy ? theme.colors.surface1 : theme.colors.accent,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: selected.lazy ? theme.colors.border : theme.colors.accent,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected.lazy ? theme.colors.foreground : theme.colors.accentForeground,
+                        fontSize: 11.5,
+                        fontWeight: "600",
+                      }}
+                    >
+                      {selected.lazy ? "Lazy·MCP" : "Eager"}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
@@ -760,6 +825,28 @@ export function SkillsView({
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <Pressable
+                      accessibilityRole="switch"
+                      onPress={() => void handleToggleRepoMode(repo)}
+                      style={{
+                        paddingHorizontal: 9,
+                        paddingVertical: 4,
+                        borderRadius: 999,
+                        backgroundColor: repo.mode === "lazy" ? theme.colors.surface1 : theme.colors.accent,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: repo.mode === "lazy" ? theme.colors.border : theme.colors.accent,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: repo.mode === "lazy" ? theme.colors.foreground : theme.colors.accentForeground,
+                          fontSize: 11,
+                          fontWeight: "600",
+                        }}
+                      >
+                        {repo.mode === "lazy" ? "Lazy·MCP" : "Eager"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
                       accessibilityRole="button"
                       disabled={isUpdating}
                       onPress={() => void handleUpdateRepo(repo)}
@@ -822,18 +909,13 @@ export function SkillsView({
           }}
         >
           {filtered.map((skill, idx) => (
-            <Pressable
+            <View
               key={`${skill.source}:${skill.name}:${skill.path}`}
-              accessibilityRole="button"
-              onPress={() => {
-                setSelected(skill);
-                setEditing(false);
-              }}
               style={{
                 flexDirection: "row",
-                alignItems: "flex-start",
+                alignItems: "center",
                 justifyContent: "space-between",
-                gap: 10,
+                gap: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
@@ -841,7 +923,14 @@ export function SkillsView({
                 backgroundColor: idx % 2 === 1 ? theme.colors.surface1 : "transparent",
               }}
             >
-              <View style={{ flex: 1, gap: 3 }}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setSelected(skill);
+                  setEditing(false);
+                }}
+                style={{ flex: 1, gap: 3 }}
+              >
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <Text style={{ color: theme.colors.foreground, fontSize: 13.5, fontWeight: "600" }}>
                     {skill.name}
@@ -855,9 +944,42 @@ export function SkillsView({
                     {skill.description}
                   </Text>
                 ) : null}
-              </View>
-              <Icon name="ChevronRight" size={14} color={theme.colors.foregroundMuted} />
-            </Pressable>
+              </Pressable>
+              {manageMode && skill.editable && skill.source !== "workspace" ? (
+                <Pressable
+                  accessibilityRole="switch"
+                  onPress={() => void handleToggleSkillMode(skill)}
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 999,
+                    backgroundColor: skill.lazy ? theme.colors.surface1 : theme.colors.accent,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: skill.lazy ? theme.colors.border : theme.colors.accent,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: skill.lazy ? theme.colors.foregroundMuted : theme.colors.accentForeground,
+                      fontSize: 10.5,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {skill.lazy ? "Lazy" : "Eager"}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setSelected(skill);
+                  setEditing(false);
+                }}
+                hitSlop={6}
+              >
+                <Icon name="ChevronRight" size={14} color={theme.colors.foregroundMuted} />
+              </Pressable>
+            </View>
           ))}
         </View>
       )}
