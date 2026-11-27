@@ -13,12 +13,12 @@
   ],
   "author": "eliottcrancee",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/eliottcrancee/paseo-plugin-genui#readme",
+  "homepage": "https://github.com/eliottcrancee/paseo-plugin-gen-ui-plus#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eliottcrancee/paseo-plugin-genui.git"
+    "url": "git+https://github.com/eliottcrancee/paseo-plugin-gen-ui-plus.git"
   },
-  "bugs": "https://github.com/eliottcrancee/paseo-plugin-genui/issues",
+  "bugs": "https://github.com/eliottcrancee/paseo-plugin-gen-ui-plus/issues",
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",

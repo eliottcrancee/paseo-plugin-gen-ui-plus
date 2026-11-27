@@ -21,10 +21,10 @@ Instead of answering with walls of Markdown, ASCII charts, or pasted command out
 ## Install
 
 ```bash
-paseo plugin add git:eliottcrancee/paseo-plugin-genui
+paseo plugin add git:eliottcrancee/paseo-plugin-gen-ui-plus
 ```
 
-Or install directly from the Paseo app (**Settings → Plugins → Add from Git**) using `eliottcrancee/paseo-plugin-genui`, or from a local clone with `paseo plugin install .`.
+Or install directly from the Paseo app (**Settings → Plugins → Add from Git**) using `eliottcrancee/paseo-plugin-gen-ui-plus`, or from a local clone with `paseo plugin install .`.
 
 Requires Paseo 0.13.0 or later.
 
