@@ -168,7 +168,7 @@ export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: rea
     "- Plans, tasks, schedules, timelines → `Plan`, `Board`, `Roadmap`, `Timeline`, `Calendar`",
     "- Code & git work → `Changes()`, `Commits()`, `PullRequest()`, `Tests`, `Findings`, `Logs`, `StackTrace`, `Coverage`, `Benchmark`, `Json` (save command output to `$BB_THREAD_STORAGE` and pass `Load(\"$BB_THREAD_STORAGE/...\")`)",
     "- Choices, calculators, questions → `Button`, `Form`, `Slider`, `EditableTable`, `FollowUps`",
-    "- Places, media, drafts to approve → `Map`, `Image`, `Gallery`, `Draft`",
+    "- Places, media, math, drafts to approve → `Map`, `Image`, `Gallery`, `Math(latex)` (or `$...$` / `$$...$$` in `Text`), `Draft`",
     "Minimal shape (one top-level `Card`, JS expressions, `$var` for interactive state):",
     "```ui",
     'Card("Summary", [Row([Metric("Score", "94%", tone: "good"), Metric("Latency", "42 ms")]), Button("Apply changes", variant: "primary")])',

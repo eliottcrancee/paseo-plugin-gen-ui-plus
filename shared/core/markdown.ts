@@ -434,6 +434,10 @@ function block(node: UiNode): string {
       return "---";
     case "Text":
       return inline(props.text);
+    case "Math": {
+      const expr = inline(props.latex);
+      return props.display === false ? `$${expr}$` : `$$\n${expr}\n$$`;
+    }
     case "Draft": {
       const title = inline(props.title);
       const body = inline(props.markdown);

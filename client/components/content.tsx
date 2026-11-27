@@ -8,7 +8,7 @@ import { parseListRows } from "../../shared/logic/explain-logic";
 import { resolveIconName } from "../../shared/logic/icons";
 import { entityKind, imageRef, inlineFacts, sourceLinks } from "../../shared/logic/references-model";
 import { finiteNumber, isNode, list, optionalText, text, tone, type Props } from "../../shared/logic/values";
-import { InlineMarkdown, MarkdownText } from "../markdown";
+import { InlineMarkdown, MarkdownText, MathFormula } from "../markdown";
 import { ErrorLine, RenderNode } from "../node-renderer";
 import { InTableContext, toneColor, toneMutedColor, useUiRuntime, type ImageUrl } from "../runtime";
 
@@ -18,6 +18,13 @@ export function Text({ props }: { props: Props }) {
   const t = tone(props.tone);
   const color = t === "neutral" ? theme.colors.foreground : toneColor(theme, t);
   return <MarkdownText text={content} theme={theme} compact={compact} color={color} />;
+}
+
+export function MathView({ props }: { props: Props }) {
+  const { theme } = useUiRuntime();
+  const latex = text(props.latex);
+  const display = props.display !== false;
+  return <MathFormula latex={latex} theme={theme} display={display} />;
 }
 
 export function Callout({ props }: { props: Props }) {

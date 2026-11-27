@@ -98,15 +98,14 @@ export const GENUI_MCP_TOOLS: readonly McpToolDefinition[] = [
   {
     name: "genui_guide",
     description:
-      "Read the Generative UI ```ui / ```app guide: DSL syntax, $state bindings, actions, Load(), charts, code-work recipes, and reliability rules.",
+      "Read the Generative UI ```ui / ```app guide: DSL syntax, $state bindings, actions, Load(), charts, LaTeX Math(), code-work recipes, and reliability rules. Also accepts any component group or component name as topic.",
     inputSchema: {
       type: "object",
       properties: {
         topic: {
           type: "string",
-          enum: ["overview", "syntax", "charts", "code-work", "reliability", "all"],
           description:
-            "Section to read (default: overview). Use 'code-work' for test/lint/diff/CI recipes, 'charts' for chart options, 'syntax' for expressions/actions, 'reliability' for common pitfalls.",
+            "Topic to read (default: overview). Suggested values: overview, syntax, charts, math, code-work, reliability, all, or any component group/name (e.g. Inputs, Forms, Chart).",
         },
       },
       additionalProperties: false,
@@ -121,8 +120,8 @@ export const GENUI_MCP_TOOLS: readonly McpToolDefinition[] = [
       properties: {
         group: {
           type: "string",
-          enum: [...COMPONENT_GROUPS],
-          description: "Optional component group to list.",
+          description:
+            "Optional component group (Layout, Content, Data, Media, Inputs, Widgets, Project, Dev, Manage, Evidence). Non-group terms automatically fall back to keyword search.",
         },
         query: {
           type: "string",
@@ -260,27 +259,50 @@ function chartsSection(): string {
   ].join("\n\n");
 }
 
+function mathSection(): string {
+  return [
+    "# LaTeX Math",
+    componentSignature("Math"),
+    "Native MathML rendering on web/desktop (offline, zero CDN, theme-aware) with Unicode math fallback on mobile. Also works inside `Text(...)` with inline `$...$` / `\\(...\\)` and display `$$...$$` blocks.",
+    "Example:",
+    '```ui\nCard("Euler & Gauss", [\n  Math("e^{i\\\\pi} + 1 = 0"),\n  Math("\\\\int_{-\\\\infty}^{\\\\infty} e^{-x^2}\\\\,dx = \\\\sqrt{\\\\pi}"),\n  Text("Inline: $\\\\alpha^2 + \\\\beta^2 = \\\\gamma^2$")\n])\n```',
+    "Remember to escape backslashes inside ```ui string literals (`\\\\frac{a}{b}`, `\\\\sum_{i=1}^{n}`).",
+  ].join("\n\n");
+}
+
 function buildGuide(topic: string, webLookups: boolean, extraFolders: readonly string[]): string {
-  switch (topic) {
+  const normalized = topic.trim().toLowerCase();
+  switch (normalized) {
     case "syntax":
+    case "dsl":
       return syntaxSection(extraFolders);
     case "charts":
+    case "chart":
       return chartsSection();
+    case "math":
+    case "latex":
+    case "katex":
+      return mathSection();
     case "code-work":
+    case "code":
+    case "dev":
       return CODE_WORK_INSTRUCTIONS;
     case "reliability":
+    case "errors":
+    case "rules":
       return RELIABILITY_INSTRUCTIONS;
     case "all":
       return [
         syntaxSection(extraFolders),
         "## Component groups\n" + groupDirectory(),
         chartsSection(),
+        mathSection(),
         RELIABILITY_INSTRUCTIONS,
         CODE_WORK_INSTRUCTIONS,
         webLookups ? AGENT_INSTRUCTIONS : AGENT_INSTRUCTIONS_WEB_OFF,
       ].join("\n\n");
+    case "":
     case "overview":
-    default:
       return [
         syntaxSection(extraFolders),
         "## Component groups (call `genui_list_components` or `genui_examples` for details)\n" + groupDirectory(),
@@ -289,12 +311,26 @@ function buildGuide(topic: string, webLookups: boolean, extraFolders: readonly s
       ]
         .filter(Boolean)
         .join("\n\n");
+    default: {
+      // Gracefully handle a component group name or keyword instead of failing.
+      const matchedGroup = COMPONENT_GROUPS.find((g) => g.toLowerCase() === normalized);
+      if (matchedGroup) {
+        return `${listComponentsReport(matchedGroup)}\n\nTip: call \`genui_examples(["ComponentName"])\` for working examples.`;
+      }
+      const search = listComponentsReport(undefined, normalized);
+      if (!search.startsWith("No components matched")) {
+        return `${search}\n\nTip: call \`genui_examples(["ComponentName"])\` for working examples.`;
+      }
+      return buildGuide("overview", webLookups, extraFolders);
+    }
   }
 }
 
 export function listComponentsReport(group?: string, query?: string): string {
-  const wantedGroup = group?.trim().toLowerCase() ?? "";
-  const wantedQuery = query?.trim().toLowerCase() ?? "";
+  const rawGroup = group?.trim().toLowerCase() ?? "";
+  const isKnownGroup = rawGroup !== "" && COMPONENT_GROUPS.some((g) => g.toLowerCase() === rawGroup);
+  const wantedGroup = isKnownGroup ? rawGroup : "";
+  const wantedQuery = (query?.trim() || (!isKnownGroup ? group?.trim() : "") || "").toLowerCase();
 
   const matched = new Map<ComponentGroup, string[]>();
   for (const g of COMPONENT_GROUPS) matched.set(g, []);

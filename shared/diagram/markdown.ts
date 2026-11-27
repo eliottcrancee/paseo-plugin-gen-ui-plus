@@ -12,6 +12,7 @@ export type Inline =
   | { kind: "bold"; text: string }
   | { kind: "italic"; text: string }
   | { kind: "code"; text: string }
+  | { kind: "math"; text: string }
   | { kind: "link"; text: string; url: string };
 
 export type Block =
@@ -20,12 +21,13 @@ export type Block =
   | { kind: "bullet"; items: Inline[][] }
   | { kind: "ordered"; items: Inline[][]; start: number }
   | { kind: "code"; language: string; text: string }
+  | { kind: "math"; text: string }
   | { kind: "quote"; content: Inline[] }
   | { kind: "rule" };
 
 // A bare URL drops trailing punctuation, so "see https://x.dev." links to https://x.dev.
 const INLINE =
-  /(`[^`]+`|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s<>]*[^\s<>.,;:!?'")\]*_]|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/;
+  /(`[^`]+`|\$(?!\s)[^$\n]+?(?<!\s)\$|\\\([^)\n]+\\\)|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s<>]*[^\s<>.,;:!?'")\]*_]|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/;
 const LINK = /^\[([^\]\n]+)\]\(([^)\s]+)\)$/;
 
 export function parseInline(text: string): Inline[] {
@@ -35,6 +37,10 @@ export function parseInline(text: string): Inline[] {
     const link = LINK.exec(piece);
     if (piece.startsWith("`") && piece.endsWith("`") && piece.length > 1) {
       out.push({ kind: "code", text: piece.slice(1, -1) });
+    } else if (piece.startsWith("$") && piece.endsWith("$") && piece.length > 2) {
+      out.push({ kind: "math", text: piece.slice(1, -1) });
+    } else if (piece.startsWith("\\(") && piece.endsWith("\\)") && piece.length > 4) {
+      out.push({ kind: "math", text: piece.slice(2, -2).trim() });
     } else if (link) {
       // Only web and mail links open; any other scheme (javascript:, file:) shows as its text.
       out.push(/^(https?:|mailto:)/i.test(link[2]) ? { kind: "link", text: link[1], url: link[2] } : { kind: "text", text: link[1] });
@@ -82,6 +88,29 @@ export function parseMarkdown(source: string): Block[] {
         index += 1;
       }
       blocks.push({ kind: "code", language: fence[2], text: body.join("\n") });
+      continue;
+    }
+
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith("$$")) {
+      flush();
+      if (trimmedLine.endsWith("$$") && trimmedLine.length > 4) {
+        blocks.push({ kind: "math", text: trimmedLine.slice(2, -2).trim() });
+      } else {
+        const body: string[] = [];
+        const rest = trimmedLine.slice(2).trim();
+        if (rest) body.push(rest);
+        index += 1;
+        while (index < lines.length && !lines[index]!.trim().endsWith("$$")) {
+          body.push(lines[index]!);
+          index += 1;
+        }
+        if (index < lines.length) {
+          const last = lines[index]!.trim().slice(0, -2).trim();
+          if (last) body.push(last);
+        }
+        blocks.push({ kind: "math", text: body.join("\n").trim() });
+      }
       continue;
     }
 

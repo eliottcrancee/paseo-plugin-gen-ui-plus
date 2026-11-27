@@ -95,7 +95,15 @@ export const COMPONENTS = {
   Text: {
     group: "Content",
     params: [{ name: "text", kind: "text" }, tone],
-    summary: "markdown",
+    summary: "markdown + inline $...$ and block $$...$$ LaTeX math",
+  },
+  Math: {
+    group: "Content",
+    params: [
+      { name: "latex", kind: "string" },
+      { name: "display", kind: "boolean", optional: true },
+    ],
+    summary: "LaTeX math rendered natively via MathML (block by default; display: false for inline)",
   },
   Callout: {
     group: "Content",

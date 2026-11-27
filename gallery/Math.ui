@@ -1,0 +1,6 @@
+Card("LaTeX Math", [
+  Text("Euler's identity and the Gaussian integral, rendered natively via MathML:"),
+  Math("e^{i\\pi} + 1 = 0"),
+  Math("\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}"),
+  Text("Inline formulas work inside `Text` too: $\\alpha^2 + \\beta^2 = \\gamma^2$.")
+])

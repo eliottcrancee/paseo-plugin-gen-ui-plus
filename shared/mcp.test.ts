@@ -232,4 +232,18 @@ describe("genui MCP server", () => {
     const result = res?.result as { isError?: boolean; content: { text: string }[] };
     expect(result.isError).toBe(false);
   });
+
+  it("accepts flexible genui_guide topics (math, group names, component names) without rejecting", async () => {
+    const mathGuide = await handleMcpJsonRpc(
+      { jsonrpc: "2.0", id: 12, method: "tools/call", params: { name: "genui_guide", arguments: { topic: "math" } } },
+      deps,
+    );
+    expect((mathGuide?.result as { content: { text: string }[] }).content[0]!.text).toContain("Math(");
+
+    const groupGuide = await handleMcpJsonRpc(
+      { jsonrpc: "2.0", id: 13, method: "tools/call", params: { name: "genui_guide", arguments: { topic: "inputs" } } },
+      deps,
+    );
+    expect((groupGuide?.result as { content: { text: string }[] }).content[0]!.text).toContain("Form(");
+  });
 });
