@@ -23,6 +23,7 @@ import {
   mcpOAuthLogoutRpc,
   mcpOAuthStartRpc,
   mcpOAuthStatusRpc,
+  pluginUpdateCheckRpc,
   projectChangesRpc,
   projectCommitsRpc,
   projectEnvironmentRpc,
@@ -32,7 +33,13 @@ import {
   projectThreadsRpc,
   renderMarkdownRpc,
   sketchFontRpc,
+  skillReposAddRpc,
+  skillReposListRpc,
+  skillReposRemoveRpc,
+  skillReposUpdateRpc,
+  skillsDeleteRpc,
   skillsListRpc,
+  skillsSaveRpc,
   uiExamplesRpc,
   webGeocodeRpc,
   webImageRpc,
@@ -82,7 +89,16 @@ import {
 } from "./server/project";
 import { createWebLookups } from "./server/web/lookups";
 import { runWebFetch, runWebSearch } from "./server/web/research";
-import { listInstalledSkills } from "./server/skills";
+import { checkPluginUpdate } from "./server/plugin-updates";
+import {
+  addSkillRepo,
+  deleteLocalSkill,
+  listInstalledSkills,
+  listSkillRepos,
+  removeSkillRepo,
+  saveLocalSkill,
+  updateSkillRepo,
+} from "./server/skills";
 
 const PREAPPROVE_MCP_PROVIDERS = new Set(["claude", "codex", "opencode"]);
 
@@ -454,6 +470,18 @@ export default function contribute(server: PluginServerContext) {
   server.handle(mcpOAuthLogoutRpc, ({ url }) => ({
     cleared: clearMcpOAuthToken(url),
   }));
+
+  server.handle(skillsSaveRpc, (input) => saveLocalSkill(input));
+  server.handle(skillsDeleteRpc, ({ path: skillPath }) => deleteLocalSkill(skillPath));
+
+  server.handle(skillReposListRpc, async ({ checkUpdates }) => ({
+    repos: await listSkillRepos(Boolean(checkUpdates)),
+  }));
+  server.handle(skillReposAddRpc, (input) => addSkillRepo(input));
+  server.handle(skillReposUpdateRpc, ({ id }) => updateSkillRepo(id));
+  server.handle(skillReposRemoveRpc, ({ id }) => removeSkillRepo(id));
+
+  server.handle(pluginUpdateCheckRpc, ({ force }) => checkPluginUpdate(Boolean(force)));
 
   return () => {
     unsubscribeSettings();

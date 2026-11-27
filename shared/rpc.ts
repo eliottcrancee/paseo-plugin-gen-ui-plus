@@ -248,6 +248,9 @@ export const skillEntrySchema = z.object({
   source: z.string(),
   path: z.string(),
   body: z.string(),
+  raw: z.string(),
+  editable: z.boolean(),
+  repoId: z.string().optional(),
   frontmatterTokens: z.number(),
   fullTokens: z.number(),
 });
@@ -262,6 +265,119 @@ export const skillsListRpc = defineRpc({
   output: z.object({
     skills: z.array(skillEntrySchema),
   }),
+});
+
+export const skillRootScopeSchema = z.enum(["agents", "pi", "claude", "codex"]);
+
+export const skillsSaveRpc = defineRpc({
+  name: "genui.skills_save",
+  input: z.object({
+    name: z.string().max(128).optional(),
+    description: z.string().max(1024).optional(),
+    body: z.string().max(262_144).optional(),
+    raw: z.string().max(262_144).optional(),
+    scope: skillRootScopeSchema.optional(),
+    existingPath: z.string().max(1024).optional(),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), path: z.string() }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
+export const skillsDeleteRpc = defineRpc({
+  name: "genui.skills_delete",
+  input: z.object({
+    path: z.string().min(1).max(1024),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true) }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
+export const skillRepoStatusSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  branch: z.string(),
+  localPath: z.string(),
+  currentSha: z.string(),
+  installedSkills: z.array(z.string()),
+  addedAt: z.number(),
+  updatedAt: z.number(),
+  remoteSha: z.string().optional(),
+  hasUpdate: z.boolean(),
+  lastCheckedAt: z.number().optional(),
+  error: z.string().optional(),
+});
+
+export type SkillRepoStatusDto = z.infer<typeof skillRepoStatusSchema>;
+
+export const skillReposListRpc = defineRpc({
+  name: "genui.skill_repos_list",
+  input: z.object({
+    checkUpdates: z.boolean().optional(),
+  }),
+  output: z.object({
+    repos: z.array(skillRepoStatusSchema),
+  }),
+});
+
+export const skillReposAddRpc = defineRpc({
+  name: "genui.skill_repos_add",
+  input: z.object({
+    url: z.string().min(1).max(1024),
+    branch: z.string().max(128).optional(),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), repo: skillRepoStatusSchema }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
+export const skillReposUpdateRpc = defineRpc({
+  name: "genui.skill_repos_update",
+  input: z.object({
+    id: z.string().min(1).max(128),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), repo: skillRepoStatusSchema }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
+export const skillReposRemoveRpc = defineRpc({
+  name: "genui.skill_repos_remove",
+  input: z.object({
+    id: z.string().min(1).max(128),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true) }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
+export const pluginUpdateInfoSchema = z.object({
+  currentVersion: z.string(),
+  latestVersion: z.string().nullable(),
+  currentSha: z.string().nullable(),
+  latestSha: z.string().nullable(),
+  latestCommitMessage: z.string().nullable(),
+  latestCommitDate: z.string().nullable(),
+  hasUpdate: z.boolean(),
+  repoUrl: z.string(),
+  checkedAt: z.number(),
+  error: z.string().optional(),
+});
+
+export type PluginUpdateInfoDto = z.infer<typeof pluginUpdateInfoSchema>;
+
+export const pluginUpdateCheckRpc = defineRpc({
+  name: "genui.plugin_update_check",
+  input: z.object({
+    force: z.boolean().optional(),
+  }),
+  output: pluginUpdateInfoSchema,
 });
 
 export const mcpOAuthStatusEntrySchema = z.object({

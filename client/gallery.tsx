@@ -8,10 +8,10 @@ import {
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { COMPONENTS, componentSignature, type ComponentGroup, type ComponentName } from "../shared/core/catalog";
 import { componentsIn, GALLERY_GROUPS, searchComponents } from "../shared/logic/gallery-search";
-import { galleryGetRpc, galleryListRpc } from "../shared/rpc";
+import { galleryGetRpc, galleryListRpc, pluginUpdateCheckRpc, type PluginUpdateInfoDto } from "../shared/rpc";
 import { SpecBlockView } from "./live-ui";
 import { McpServersView } from "./mcp-view";
 import type { UiRuntime } from "./runtime";
@@ -102,7 +102,11 @@ function GalleryBody({
   initialTab: HubTab;
 }) {
   const listGallery = useRpc(galleryListRpc);
+  const checkPluginUpdate = useRpc(pluginUpdateCheckRpc);
+  const toast = useToast();
   const [files, setFiles] = useState<string[]>([]);
+  const [updateInfo, setUpdateInfo] = useState<PluginUpdateInfoDto | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [activeGroup, setActiveGroup] = useState<ComponentGroup>("Layout");
   const [selectedComponent, setSelectedComponent] = useState<ComponentName | null>(
     initialComponent && isComponent(initialComponent) ? initialComponent : null,
@@ -114,6 +118,37 @@ function GalleryBody({
   useEffect(() => {
     setMode(initialTab);
   }, [initialTab]);
+
+  const runUpdateCheck = useCallback(
+    async (force: boolean) => {
+      setCheckingUpdate(true);
+      try {
+        const res = await checkPluginUpdate({ force });
+        setUpdateInfo(res);
+        if (force) {
+          if (res.error) {
+            toast.error(res.error);
+          } else if (res.hasUpdate) {
+            toast.show(
+              `Gen-UI Plus update available (${res.latestVersion ? `v${res.latestVersion}` : res.latestSha ?? "new commit"}) — update in Paseo Settings → Plugins.`,
+              { variant: "info" },
+            );
+          } else {
+            toast.show(`Gen-UI Plus v${res.currentVersion} is up to date.`, { variant: "success" });
+          }
+        }
+      } catch {
+        // Ignore transient offline errors on background check.
+      } finally {
+        setCheckingUpdate(false);
+      }
+    },
+    [checkPluginUpdate, toast],
+  );
+
+  useEffect(() => {
+    void runUpdateCheck(false);
+  }, [runUpdateCheck]);
 
   useEffect(() => {
     let live = true;
@@ -146,7 +181,6 @@ function GalleryBody({
     return componentsIn(activeGroup);
   }, [activeGroup, searchResults, selectedComponent]);
 
-  const toast = useToast();
   const sendPreview = useCallback(
     async (msg: string) => {
       toast.show(`Would send: ${msg}`, { variant: "info" });
@@ -166,10 +200,55 @@ function GalleryBody({
       }}
     >
       <View style={{ flexDirection: compact ? "column" : "row", justifyContent: "space-between", alignItems: compact ? "flex-start" : "center", gap: 12 }}>
-        <View style={{ gap: 2, flex: 1 }}>
-          <Text style={{ color: theme.colors.foreground, fontSize: compact ? 18 : 22, fontWeight: "700" }}>
-            Gen-UI Plus
-          </Text>
+        <View style={{ gap: 4, flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <Text style={{ color: theme.colors.foreground, fontSize: compact ? 18 : 22, fontWeight: "700" }}>
+              Gen-UI Plus
+            </Text>
+            {updateInfo ? (
+              <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11.5, fontFamily: "monospace" }}>
+                v{updateInfo.currentVersion}
+              </Text>
+            ) : null}
+            {updateInfo?.hasUpdate ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  toast.show("Open Paseo Settings → Plugins → Gen-UI Plus to install the latest version.", {
+                    variant: "info",
+                  });
+                  void Linking.openURL(updateInfo.repoUrl);
+                }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 999,
+                  backgroundColor: theme.colors.accent,
+                }}
+              >
+                <Icon name="Download" size={11} color={theme.colors.accentForeground} />
+                <Text style={{ color: theme.colors.accentForeground, fontSize: 11, fontWeight: "600" }}>
+                  Update {updateInfo.latestVersion ? `v${updateInfo.latestVersion}` : updateInfo.latestSha ?? ""}
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                disabled={checkingUpdate}
+                onPress={() => void runUpdateCheck(true)}
+                hitSlop={6}
+                style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: checkingUpdate ? 0.5 : 0.8 }}
+              >
+                <Icon name="RotateCcw" size={11} color={theme.colors.foregroundMuted} />
+                <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
+                  {checkingUpdate ? "Checking…" : "Check updates"}
+                </Text>
+              </Pressable>
+            )}
+          </View>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12.5 }}>
             {Object.keys(COMPONENTS).length} components · {files.length} examples · MCP Servers · Skills
           </Text>
