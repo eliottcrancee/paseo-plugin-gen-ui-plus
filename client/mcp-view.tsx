@@ -1,9 +1,15 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useSettings } from "@getpaseo/plugin/client";
+import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import type { McpServerConfig } from "@getpaseo/protocol/agent-types";
-import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  mcpOAuthLogoutRpc,
+  mcpOAuthStartRpc,
+  mcpOAuthStatusRpc,
+  type McpOAuthStatusEntry,
+} from "../shared/rpc";
 import { genuiSettings, parseCustomMcpServers } from "../shared/settings";
 
 type ServerType = "http" | "stdio" | "sse";
@@ -16,6 +22,9 @@ function serializeServers(servers: Record<string, McpServerConfig>): string {
 export function McpServersView({ theme }: { theme: PluginTheme }) {
   const settings = useSettings(genuiSettings);
   const toast = useToast();
+  const fetchOAuthStatus = useRpc(mcpOAuthStatusRpc);
+  const startOAuth = useRpc(mcpOAuthStartRpc);
+  const logoutOAuth = useRpc(mcpOAuthLogoutRpc);
 
   // Quick "+ Add server" form state
   const [showAdd, setShowAdd] = useState(false);
@@ -30,10 +39,106 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
   const [showJson, setShowJson] = useState(false);
   const [jsonDraft, setJsonDraft] = useState<string | null>(null);
 
+  // OAuth status & active sign-in state
+  const [oauthStatuses, setOAuthStatuses] = useState<Record<string, McpOAuthStatusEntry>>({});
+  const [startingUrl, setStartingUrl] = useState<string | null>(null);
+  const [pendingLinks, setPendingLinks] = useState<Record<string, string>>({});
+  const prevStatusRef = useRef<Record<string, McpOAuthStatusEntry["status"]>>({});
+
   const savedJson = settings.status === "ready" ? settings.values.customMcpServersJson : "";
   const savedParsed = useMemo(() => parseCustomMcpServers(savedJson), [savedJson]);
   const rawDraft = jsonDraft ?? savedJson;
   const draftParsed = useMemo(() => parseCustomMcpServers(rawDraft), [rawDraft]);
+
+  const httpUrls = useMemo(() => {
+    if (!savedParsed.ok) return [];
+    const urls: string[] = [];
+    for (const server of Object.values(savedParsed.servers)) {
+      if (server.type === "http" || server.type === "sse") {
+        urls.push(server.url);
+      }
+    }
+    return urls;
+  }, [savedParsed]);
+
+  const refreshOAuth = useCallback(async () => {
+    if (httpUrls.length === 0) {
+      setOAuthStatuses({});
+      return;
+    }
+    try {
+      const res = await fetchOAuthStatus({ urls: httpUrls });
+      setOAuthStatuses(res.statuses);
+      for (const [u, entry] of Object.entries(res.statuses)) {
+        const prev = prevStatusRef.current[u];
+        if (prev === "pending" && entry.status === "connected") {
+          setPendingLinks((cur) => {
+            const next = { ...cur };
+            delete next[u];
+            return next;
+          });
+          toast.show("OAuth connected! Start a new session to use this MCP server.", { variant: "success" });
+        } else if (prev === "pending" && entry.status !== "pending") {
+          setPendingLinks((cur) => {
+            const next = { ...cur };
+            delete next[u];
+            return next;
+          });
+        }
+        prevStatusRef.current[u] = entry.status;
+      }
+    } catch {
+      // Ignore transient RPC errors.
+    }
+  }, [fetchOAuthStatus, httpUrls, toast]);
+
+  useEffect(() => {
+    void refreshOAuth();
+  }, [refreshOAuth]);
+
+  const hasPending = Object.values(oauthStatuses).some((s) => s.status === "pending") || Object.keys(pendingLinks).length > 0;
+
+  useEffect(() => {
+    if (!hasPending) return;
+    const timer = setInterval(() => {
+      void refreshOAuth();
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [hasPending, refreshOAuth]);
+
+  const handleSignIn = async (serverName: string, serverUrl: string) => {
+    setStartingUrl(serverUrl);
+    try {
+      const res = await startOAuth({ serverName, url: serverUrl });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      prevStatusRef.current[serverUrl] = "pending";
+      setPendingLinks((cur) => ({ ...cur, [serverUrl]: res.authUrl }));
+      toast.show(`Opening browser to sign in to "${serverName}"…`, { variant: "info" });
+      void refreshOAuth();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStartingUrl(null);
+    }
+  };
+
+  const handleSignOut = async (serverName: string, serverUrl: string) => {
+    try {
+      await logoutOAuth({ url: serverUrl });
+      setPendingLinks((cur) => {
+        const next = { ...cur };
+        delete next[serverUrl];
+        return next;
+      });
+      toast.show(`Signed out of "${serverName}"`, { variant: "success" });
+      void refreshOAuth();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   if (settings.status === "loading") {
     return (
@@ -64,11 +169,15 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
   };
 
   const deleteServer = (serverName: string) => {
+    const existing = servers[serverName];
     const next = { ...servers };
     delete next[serverName];
     const nextJson = serializeServers(next);
     const nextDisabled = values.disabledMcpServers.filter((item) => item !== serverName);
     setJsonDraft(null);
+    if (existing && (existing.type === "http" || existing.type === "sse")) {
+      void logoutOAuth({ url: existing.url }).catch(() => undefined);
+    }
     void save({ ...values, customMcpServersJson: nextJson, disabledMcpServers: nextDisabled }, revision).then(() => {
       toast.show(`Removed MCP server "${serverName}"`, { variant: "success" });
     });
@@ -255,6 +364,9 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
                 placeholderTextColor={theme.colors.foregroundMuted}
                 style={inputStyle}
               />
+              <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11.5 }}>
+                Leave empty for OAuth (Notion, GitHub, Linear…) — click Sign in after saving.
+              </Text>
             </>
           )}
           <Pressable
@@ -324,66 +436,164 @@ export function McpServersView({ theme }: { theme: PluginTheme }) {
         >
           {entries.map(([serverName, server], idx) => {
             const enabled = !disabledSet.has(serverName);
+            const isRemote = server.type === "http" || server.type === "sse";
             const target =
               server.type === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url;
+            const hasExplicitAuth =
+              isRemote && Object.keys(server.headers ?? {}).some((k) => k.toLowerCase() === "authorization");
+            const oauth = isRemote ? oauthStatuses[server.url] : undefined;
+            const oauthState = oauth?.status ?? "none";
+            const isStarting = isRemote && startingUrl === server.url;
+            const pendingUrl = isRemote ? pendingLinks[server.url] : undefined;
+
             return (
               <View
                 key={serverName}
                 style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 10,
                   paddingHorizontal: 12,
                   paddingVertical: 10,
+                  gap: 6,
                   borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
                   borderTopColor: theme.colors.border,
                 }}
               >
-                <View style={{ flex: 1, gap: 2 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600" }}>
-                      {serverName}
-                    </Text>
-                    <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, fontFamily: "monospace" }}>
-                      {server.type}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <Text style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: "600" }}>
+                        {serverName}
+                      </Text>
+                      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, fontFamily: "monospace" }}>
+                        {server.type}
+                      </Text>
+                      {isRemote && !hasExplicitAuth && oauthState === "connected" ? (
+                        <Text style={{ color: theme.colors.statusSuccess, fontSize: 11, fontWeight: "600" }}>
+                          · OAuth ✓
+                        </Text>
+                      ) : null}
+                      {isRemote && !hasExplicitAuth && oauthState === "pending" ? (
+                        <Text style={{ color: theme.colors.accent, fontSize: 11, fontWeight: "600" }}>
+                          · Signing in…
+                        </Text>
+                      ) : null}
+                      {isRemote && !hasExplicitAuth && oauthState === "expired" ? (
+                        <Text style={{ color: theme.colors.statusDanger, fontSize: 11, fontWeight: "600" }}>
+                          · OAuth expired
+                        </Text>
+                      ) : null}
+                      {hasExplicitAuth ? (
+                        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
+                          · Header auth
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text numberOfLines={1} style={{ color: theme.colors.foregroundMuted, fontSize: 11.5, fontFamily: "monospace" }}>
+                      {target}
                     </Text>
                   </View>
-                  <Text numberOfLines={1} style={{ color: theme.colors.foregroundMuted, fontSize: 11.5, fontFamily: "monospace" }}>
-                    {target}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Pressable
-                    accessibilityRole="switch"
-                    onPress={() => toggleServer(serverName, !enabled)}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 999,
-                      backgroundColor: enabled ? theme.colors.accent : theme.colors.surface1,
-                      borderWidth: StyleSheet.hairlineWidth,
-                      borderColor: enabled ? theme.colors.accent : theme.colors.border,
-                    }}
-                  >
-                    <Text
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    {isRemote && !hasExplicitAuth ? (
+                      oauthState === "connected" ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => void handleSignOut(serverName, server.url)}
+                          style={{
+                            paddingHorizontal: 9,
+                            paddingVertical: 4,
+                            borderRadius: 6,
+                            backgroundColor: theme.colors.surface1,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: theme.colors.border,
+                          }}
+                        >
+                          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11.5, fontWeight: "500" }}>
+                            Sign out
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={isStarting}
+                          onPress={() => void handleSignIn(serverName, server.url)}
+                          style={{
+                            paddingHorizontal: 9,
+                            paddingVertical: 4,
+                            borderRadius: 6,
+                            backgroundColor: theme.colors.surface1,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: theme.colors.accent,
+                            opacity: isStarting ? 0.5 : 1,
+                          }}
+                        >
+                          <Text style={{ color: theme.colors.accent, fontSize: 11.5, fontWeight: "600" }}>
+                            {isStarting
+                              ? "Opening…"
+                              : oauthState === "expired"
+                                ? "Reconnect"
+                                : oauthState === "pending"
+                                  ? "Retry"
+                                  : "Sign in"}
+                          </Text>
+                        </Pressable>
+                      )
+                    ) : null}
+                    <Pressable
+                      accessibilityRole="switch"
+                      onPress={() => toggleServer(serverName, !enabled)}
                       style={{
-                        color: enabled ? theme.colors.accentForeground : theme.colors.foregroundMuted,
-                        fontSize: 11.5,
-                        fontWeight: "600",
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 999,
+                        backgroundColor: enabled ? theme.colors.accent : theme.colors.surface1,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: enabled ? theme.colors.accent : theme.colors.border,
                       }}
                     >
-                      {enabled ? "On" : "Off"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => deleteServer(serverName)}
-                    hitSlop={6}
-                  >
-                    <Icon name="Trash2" size={14} color={theme.colors.foregroundMuted} />
-                  </Pressable>
+                      <Text
+                        style={{
+                          color: enabled ? theme.colors.accentForeground : theme.colors.foregroundMuted,
+                          fontSize: 11.5,
+                          fontWeight: "600",
+                        }}
+                      >
+                        {enabled ? "On" : "Off"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => deleteServer(serverName)}
+                      hitSlop={6}
+                    >
+                      <Icon name="Trash2" size={14} color={theme.colors.foregroundMuted} />
+                    </Pressable>
+                  </View>
                 </View>
+
+                {pendingUrl ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11.5, flex: 1 }}>
+                      Complete authorization in your browser.
+                    </Text>
+                    <Pressable onPress={() => void Linking.openURL(pendingUrl)}>
+                      <Text style={{ color: theme.colors.accent, fontSize: 11.5, fontWeight: "600" }}>
+                        Open link
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {oauth?.lastError ? (
+                  <Text style={{ color: theme.colors.statusDanger, fontSize: 11.5 }}>
+                    OAuth error: {oauth.lastError}
+                  </Text>
+                ) : null}
               </View>
             );
           })}

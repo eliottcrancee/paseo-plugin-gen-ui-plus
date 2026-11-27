@@ -264,6 +264,46 @@ export const skillsListRpc = defineRpc({
   }),
 });
 
+export const mcpOAuthStatusEntrySchema = z.object({
+  url: z.string(),
+  status: z.enum(["connected", "expired", "pending", "none"]),
+  expiresAt: z.number().optional(),
+  hasRefreshToken: z.boolean().optional(),
+  lastError: z.string().optional(),
+});
+
+export type McpOAuthStatusEntry = z.infer<typeof mcpOAuthStatusEntrySchema>;
+
+export const mcpOAuthStatusRpc = defineRpc({
+  name: "genui.mcp_oauth_status",
+  input: z.object({
+    urls: z.array(z.string().min(1).max(2048)).max(64),
+  }),
+  output: z.object({
+    statuses: z.record(z.string(), mcpOAuthStatusEntrySchema),
+  }),
+});
+
+export const mcpOAuthStartRpc = defineRpc({
+  name: "genui.mcp_oauth_start",
+  input: z.object({
+    serverName: z.string().min(1).max(128),
+    url: z.string().min(1).max(2048),
+  }),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), authUrl: z.string() }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
+});
+
+export const mcpOAuthLogoutRpc = defineRpc({
+  name: "genui.mcp_oauth_logout",
+  input: z.object({
+    url: z.string().min(1).max(2048),
+  }),
+  output: z.object({ cleared: z.boolean() }),
+});
+
 export const genuiBlockDataSchema = z.object({
   language: z.enum(["ui", "app"]),
   code: z.string(),

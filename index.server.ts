@@ -20,6 +20,9 @@ import {
   loadAudioRpc,
   loadDataRpc,
   loadImageRpc,
+  mcpOAuthLogoutRpc,
+  mcpOAuthStartRpc,
+  mcpOAuthStatusRpc,
   projectChangesRpc,
   projectCommitsRpc,
   projectEnvironmentRpc,
@@ -54,6 +57,13 @@ import {
   sketchFontDataUrl,
 } from "./server/data-source";
 import { buildMcpServerConfig, startMcpBridge, type McpBridgeHandle } from "./server/mcp-bridge";
+import {
+  clearMcpOAuthToken,
+  getMcpOAuthStatuses,
+  getValidMcpOAuthToken,
+  startMcpOAuthFlow,
+  stopAllMcpOAuthFlows,
+} from "./server/mcp-oauth";
 import {
   buildContextInspectionReport,
   buildContextInspectorSpec,
@@ -163,7 +173,7 @@ export default function contribute(server: PluginServerContext) {
   server.before("agent.create", async ({ request }) => {
     if (request.config.internal) return;
     const current = await settings.read();
-    const customMcpServers =
+    const rawCustomMcpServers =
       current.status === "ready"
         ? resolveEnabledCustomMcpServers(
             current.values.customMcpServersJson,
@@ -171,6 +181,26 @@ export default function contribute(server: PluginServerContext) {
             process.env,
           )
         : {};
+    const customMcpServers: typeof rawCustomMcpServers = {};
+    for (const [name, cfg] of Object.entries(rawCustomMcpServers)) {
+      if (cfg.type === "http" || cfg.type === "sse") {
+        const hasAuthHeader = Object.keys(cfg.headers ?? {}).some((k) => k.toLowerCase() === "authorization");
+        if (!hasAuthHeader) {
+          const oauthToken = await getValidMcpOAuthToken(cfg.url).catch(() => null);
+          if (oauthToken) {
+            customMcpServers[name] = {
+              ...cfg,
+              headers: {
+                ...cfg.headers,
+                Authorization: `Bearer ${oauthToken}`,
+              },
+            };
+            continue;
+          }
+        }
+      }
+      customMcpServers[name] = cfg;
+    }
     const mergeCustomMcp = (base: typeof request.config.mcpServers) => {
       const entries = Object.entries(customMcpServers).filter(
         ([name]) => name !== GENUI_MCP_SERVER_NAME && !base?.[name],
@@ -415,9 +445,20 @@ export default function contribute(server: PluginServerContext) {
     return { appended: true, sections: report.sections.length };
   });
 
+  server.handle(mcpOAuthStatusRpc, ({ urls }) => ({
+    statuses: getMcpOAuthStatuses(urls),
+  }));
+
+  server.handle(mcpOAuthStartRpc, ({ serverName, url }) => startMcpOAuthFlow(serverName, url));
+
+  server.handle(mcpOAuthLogoutRpc, ({ url }) => ({
+    cleared: clearMcpOAuthToken(url),
+  }));
+
   return () => {
     unsubscribeSettings();
     unsubscribeCreated();
+    stopAllMcpOAuthFlows();
     if (bridgePromise !== null) {
       void bridgePromise.then((bridge) => bridge.close()).catch(() => undefined);
       bridgePromise = null;
