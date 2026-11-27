@@ -208,15 +208,17 @@ function GalleryBody({
             {updateInfo ? (
               <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11.5, fontFamily: "monospace" }}>
                 v{updateInfo.currentVersion}
+                {updateInfo.currentSha ? ` (${updateInfo.currentSha})` : ""}
               </Text>
             ) : null}
             {updateInfo?.hasUpdate ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={() => {
-                  toast.show("Open Paseo Settings → Plugins → Gen-UI Plus to install the latest version.", {
-                    variant: "info",
-                  });
+                  toast.show(
+                    `Update available${updateInfo.latestCommitMessage ? `: ${updateInfo.latestCommitMessage}` : ""} — update Gen-UI Plus in Paseo Settings → Plugins.`,
+                    { variant: "info" },
+                  );
                   void Linking.openURL(updateInfo.repoUrl);
                 }}
                 style={{
@@ -231,7 +233,10 @@ function GalleryBody({
               >
                 <Icon name="Download" size={11} color={theme.colors.accentForeground} />
                 <Text style={{ color: theme.colors.accentForeground, fontSize: 11, fontWeight: "600" }}>
-                  Update {updateInfo.latestVersion ? `v${updateInfo.latestVersion}` : updateInfo.latestSha ?? ""}
+                  Update{" "}
+                  {updateInfo.latestVersion && updateInfo.latestVersion !== updateInfo.currentVersion
+                    ? `v${updateInfo.latestVersion}`
+                    : updateInfo.latestSha ?? ""}
                 </Text>
               </Pressable>
             ) : (

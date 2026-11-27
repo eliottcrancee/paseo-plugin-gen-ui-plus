@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -27,9 +28,70 @@ const FETCH_TIMEOUT_MS = 6_000;
 
 let cachedInfo: PluginUpdateInfo | null = null;
 
+function isPluginRoot(dir: string): boolean {
+  return existsSync(join(dir, "paseo-plugin.json")) || existsSync(join(dir, "package.json"));
+}
+
 function pluginRootDir(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..");
+  // Walk up from import.meta.url (handles both unbundled server/*.ts and Paseo-bundled root index.server.js).
+  try {
+    if (typeof import.meta.url === "string" && import.meta.url.startsWith("file:")) {
+      let cur = dirname(fileURLToPath(import.meta.url));
+      for (let i = 0; i < 4; i++) {
+        if (isPluginRoot(cur)) return cur;
+        const parent = dirname(cur);
+        if (parent === cur) break;
+        cur = parent;
+      }
+    }
+  } catch {
+    // Fallback below
+  }
+
+  // Fallback: locate the newest installed revision checkout under ~/.paseo/plugins/genui/*/checkout.
+  try {
+    const base = join(homedir(), ".paseo", "plugins", "genui");
+    if (existsSync(base)) {
+      const candidates = readdirSync(base)
+        .map((entry) => join(base, entry, "checkout"))
+        .filter((dir) => existsSync(dir) && isPluginRoot(dir))
+        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+      if (candidates[0]) return candidates[0];
+    }
+  } catch {
+    // Ignore
+  }
+
+  return join(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+function readGitHeadDirectly(root: string): string | null {
+  try {
+    const gitDir = join(root, ".git");
+    const headPath = join(gitDir, "HEAD");
+    if (!existsSync(headPath)) return null;
+    const head = readFileSync(headPath, "utf8").trim();
+    if (/^[0-9a-f]{7,40}$/i.test(head)) return head;
+    const refMatch = /^ref:\s*(.+)$/.exec(head);
+    if (!refMatch?.[1]) return null;
+    const refName = refMatch[1].trim();
+    const looseRef = join(gitDir, refName);
+    if (existsSync(looseRef)) {
+      const sha = readFileSync(looseRef, "utf8").trim();
+      if (/^[0-9a-f]{7,40}$/i.test(sha)) return sha;
+    }
+    const packedRefs = join(gitDir, "packed-refs");
+    if (existsSync(packedRefs)) {
+      for (const line of readFileSync(packedRefs, "utf8").split("\n")) {
+        if (line.startsWith("#") || line.startsWith("^")) continue;
+        const [sha, ref] = line.trim().split(/\s+/);
+        if (ref === refName && sha && /^[0-9a-f]{7,40}$/i.test(sha)) return sha;
+      }
+    }
+  } catch {
+    // Fall through to git CLI
+  }
+  return null;
 }
 
 export function compareSemver(a: string, b: string): number {
@@ -63,6 +125,8 @@ function readLocalPackageVersion(root: string): string {
 }
 
 async function readLocalGitSha(root: string): Promise<string | null> {
+  const direct = readGitHeadDirectly(root);
+  if (direct) return direct;
   if (!existsSync(join(root, ".git"))) return null;
   try {
     const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "HEAD"], { timeout: 3_000 });
