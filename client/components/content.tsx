@@ -258,6 +258,28 @@ export function LoadedImageView({
   const [aspect, setAspect] = useState<number | null>(null);
   const [frameWidth, setFrameWidth] = useState(0);
 
+  const measure = (url: string) => {
+    RNImage.getSize(
+      url,
+      (w, h) => {
+        if (w > 0 && h > 0) setAspect(w / h);
+      },
+      () => {},
+    );
+  };
+
+  // Measure https srcs as early as possible, in parallel with the loader, so the
+  // first paint of the image already uses the aspect-aware height (no jump).
+  useEffect(() => {
+    if (!adaptive || !src || !/^https?:\/\//i.test(src)) return;
+    let live = true;
+    measure(src);
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adaptive, src]);
+
   useEffect(() => {
     setAspect(null);
     if (!loadImage || !src) return;
@@ -271,33 +293,37 @@ export function LoadedImageView({
   }, [loadImage, src]);
 
   useEffect(() => {
-    if (!adaptive || !state?.ok) return;
-    let live = true;
-    RNImage.getSize(
-      state.url,
-      (w, h) => {
-        if (live && w > 0 && h > 0) setAspect(w / h);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
+    if (!adaptive || !state?.ok) {
+      return;
+    }
+    measure(state.url);
   }, [adaptive, state]);
 
   if (!src) return <ErrorLine message="Image src is empty" />;
+
   if (state === null) {
     return (
       <View
-        style={{
-          height,
-          borderRadius: 8,
-          backgroundColor: theme.colors.surface2,
-          alignItems: "center",
-          justifyContent: "center",
+        style={{ gap: 4 }}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w > 0 && Math.abs(w - frameWidth) > 0.5) setFrameWidth(w);
         }}
       >
-        <RNText style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>Loading image…</RNText>
+        <View
+          style={{
+            height,
+            borderRadius: 8,
+            backgroundColor: theme.colors.surface2,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <RNText style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>Loading image…</RNText>
+        </View>
+        {alt ? (
+          <RNText style={{ color: theme.colors.foregroundMuted, fontSize: 11.5 }}>{alt}</RNText>
+        ) : null}
       </View>
     );
   }
