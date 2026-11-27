@@ -242,18 +242,24 @@ export function LoadedImageView({
   alt,
   height = 200,
   zoomable = true,
+  adaptive = false,
 }: {
   src: string;
   alt?: string | null;
   height?: number;
   /** Tapping opens the image full size; off where the image sits inside another tap target. */
   zoomable?: boolean;
+  /** Remove letterboxing: adapt the frame height to the image's aspect ratio. */
+  adaptive?: boolean;
 }) {
   const { theme, loadImage } = useUiRuntime();
   const [state, setState] = useState<ImageUrl | null>(null);
   const [zoomed, setZoomed] = useState(false);
+  const [aspect, setAspect] = useState<number | null>(null);
+  const [frameWidth, setFrameWidth] = useState(0);
 
   useEffect(() => {
+    setAspect(null);
     if (!loadImage || !src) return;
     let live = true;
     void loadImage(src).then((res) => {
@@ -263,6 +269,21 @@ export function LoadedImageView({
       live = false;
     };
   }, [loadImage, src]);
+
+  useEffect(() => {
+    if (!adaptive || !state?.ok) return;
+    let live = true;
+    RNImage.getSize(
+      state.url,
+      (w, h) => {
+        if (live && w > 0 && h > 0) setAspect(w / h);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [adaptive, state]);
 
   if (!src) return <ErrorLine message="Image src is empty" />;
   if (state === null) {
@@ -298,11 +319,20 @@ export function LoadedImageView({
     );
   }
 
+  const frameHeight =
+    adaptive && aspect !== null && frameWidth > 0
+      ? Math.max(80, Math.min(420, Math.round(frameWidth / aspect)))
+      : height;
+
   const picture = (frameHeight: number) => (
     <RNImage
       source={{ uri: state.url }}
       accessibilityLabel={alt ?? src}
       resizeMode="contain"
+      onLoad={(e: { nativeEvent?: { source?: { width?: number; height?: number }; width?: number; height?: number } }) => {
+        const s = e.nativeEvent?.source ?? e.nativeEvent;
+        if (s?.width && s?.height && s.width > 0 && s.height > 0) setAspect(s.width / s.height);
+      }}
       style={{
         width: "100%",
         height: frameHeight,
@@ -313,7 +343,13 @@ export function LoadedImageView({
   );
 
   return (
-    <View style={{ gap: 4 }}>
+    <View
+      style={{ gap: 4 }}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        if (w > 0 && Math.abs(w - frameWidth) > 0.5) setFrameWidth(w);
+      }}
+    >
       {zoomable ? (
         <Pressable accessibilityRole="imagebutton" accessibilityLabel={`View ${alt ?? src} full size`} onPress={() => setZoomed(true)}>
           {picture(height)}
@@ -332,7 +368,7 @@ export function LoadedImageView({
 export function Image({ props }: { props: Props }) {
   const src = text(props.src);
   const alt = optionalText(props.alt);
-  return <LoadedImageView src={src} alt={alt} height={220} />;
+  return <LoadedImageView src={src} alt={alt} height={220} adaptive />;
 }
 
 export function File({ props }: { props: Props }) {

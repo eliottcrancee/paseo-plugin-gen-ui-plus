@@ -55,7 +55,7 @@ export function ImageSearch({ props, zoomable = true }: { props: Props; zoomable
 
   return (
     <View style={{ gap: 4 }}>
-      <LoadedImageView src={found.image.url} alt={alt} height={height} zoomable={zoomable} />
+      <LoadedImageView src={found.image.url} alt={alt} height={height} zoomable={zoomable} adaptive />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         <ExternalLink href={found.image.sourceUrl}>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
