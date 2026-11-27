@@ -36,7 +36,7 @@ import {
   webTileRpc,
 } from "./shared/rpc";
 import { GENUI_BLOCK_KIND } from "./shared/segment";
-import { genuiSettings, parseFolders } from "./shared/settings";
+import { genuiSettings, parseFolders, resolveEnabledCustomMcpServers } from "./shared/settings";
 import {
   agentStorageDir,
   examplesReport,
@@ -161,9 +161,30 @@ export default function contribute(server: PluginServerContext) {
   server.before("agent.create", async ({ request }) => {
     if (request.config.internal) return;
     const current = await settings.read();
+    const customMcpServers =
+      current.status === "ready"
+        ? resolveEnabledCustomMcpServers(
+            current.values.customMcpServersJson,
+            current.values.disabledMcpServers,
+            process.env,
+          )
+        : {};
+    const mergeCustomMcp = (base: typeof request.config.mcpServers) => {
+      const entries = Object.entries(customMcpServers).filter(
+        ([name]) => name !== GENUI_MCP_SERVER_NAME && !base?.[name],
+      );
+      if (entries.length === 0) return base;
+      return {
+        ...base,
+        ...Object.fromEntries(entries),
+      };
+    };
+
     if (current.status === "ready" && !current.values.autoInstructions) {
-      rememberInit(request.config);
-      return;
+      const withCustom = mergeCustomMcp(request.config.mcpServers);
+      const nextConfig = withCustom ? { ...request.config, mcpServers: withCustom } : request.config;
+      rememberInit(nextConfig);
+      return withCustom ? { ...request, config: nextConfig } : undefined;
     }
     const webOn = current.status === "ready" ? current.values.webLookups : true;
     const extraFolders = current.status === "ready" ? parseFolders(current.values.extraFolders) : [];
@@ -175,14 +196,14 @@ export default function contribute(server: PluginServerContext) {
         ? existing
         : [existing, buildMcpSkillInstructions(webOn, extraFolders)].filter(Boolean).join("\n\n");
 
-      let nextMcpServers = request.config.mcpServers;
+      let nextMcpServers = mergeCustomMcp(request.config.mcpServers);
       let nextToolPolicy = request.config.toolPolicy;
 
-      if (!request.config.mcpServers?.[GENUI_MCP_SERVER_NAME]) {
+      if (!nextMcpServers?.[GENUI_MCP_SERVER_NAME]) {
         try {
           const bridge = await ensureMcpBridge();
           nextMcpServers = {
-            ...request.config.mcpServers,
+            ...nextMcpServers,
             [GENUI_MCP_SERVER_NAME]: buildMcpServerConfig(bridge, request.config.cwd),
           };
           if (PREAPPROVE_MCP_PROVIDERS.has(request.config.provider.toLowerCase())) {
@@ -210,6 +231,7 @@ export default function contribute(server: PluginServerContext) {
           const fallbackConfig = {
             ...request.config,
             systemPrompt: fallbackPrompt,
+            ...(nextMcpServers ? { mcpServers: nextMcpServers } : {}),
           };
           rememberInit(fallbackConfig);
           return {
@@ -232,13 +254,16 @@ export default function contribute(server: PluginServerContext) {
       };
     }
 
+    const withCustom = mergeCustomMcp(request.config.mcpServers);
     if (existing.includes(GENUI_MARKER)) {
-      rememberInit(request.config);
-      return;
+      const nextConfig = withCustom ? { ...request.config, mcpServers: withCustom } : request.config;
+      rememberInit(nextConfig);
+      return withCustom ? { ...request, config: nextConfig } : undefined;
     }
     const fullConfig = {
       ...request.config,
       systemPrompt: [existing, buildFullInstructions(webOn, extraFolders)].filter(Boolean).join("\n\n"),
+      ...(withCustom ? { mcpServers: withCustom } : {}),
     };
     rememberInit(fullConfig);
     return {

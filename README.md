@@ -60,7 +60,7 @@ When **Load component docs via MCP** is enabled (default), the plugin starts a l
 | `web_search(query, limit?)` | Local web search (no API key or external MCP service; respects the Web lookups setting) |
 | `web_fetch(url, maxChars?)` | Local HTTPS page/JSON fetcher with private-IP SSRF protection and HTML-to-Markdown extraction |
 
-You can switch back to the full inline system prompt anytime in **Settings → Plugins → Gen-UI Plus**. A standalone [`SKILL.md`](SKILL.md) is also included for manual use in Pi, OpenCode, or Claude Code.
+You can switch back to the full inline system prompt anytime in **Settings → Plugins → Gen-UI Plus**. The **MCP Servers** tab in settings also lets you configure and toggle any custom `mcpServers` (`stdio`, `http`, `sse`, with `${ENV_VAR}` expansion) once at the Paseo level so they automatically follow you across Pi, OpenCode, Claude Code, and Codex. A standalone [`SKILL.md`](SKILL.md) is also included for manual use.
 
 ## Charts
 
