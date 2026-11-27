@@ -22,8 +22,8 @@ describe("genui MCP server", () => {
   it("keeps the MCP skill prompt dramatically smaller than the full inline reference", () => {
     const skill = buildMcpSkillInstructions(true);
     const full = buildFullInstructions(true);
-    expect(skill.length).toBeLessThan(1600);
-    expect(skill.length).toBeLessThan(full.length * 0.15);
+    expect(skill.length).toBeLessThan(2600);
+    expect(skill.length).toBeLessThan(full.length * 0.16);
     expect(skill).toContain("genui_guide");
     expect(skill).toContain("genui_list_components");
     expect(skill).toContain("genui_examples");

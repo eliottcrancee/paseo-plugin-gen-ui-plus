@@ -1,6 +1,6 @@
 {
-  "name": "paseo-plugin-genui",
-  "version": "0.3.0",
+  "name": "paseo-plugin-gen-ui-plus",
+  "version": "0.4.0",
   "description": "Paseo plugin: agents answer with charts, diagrams, maps, plans and forms rendered inline in the chat.",
   "keywords": [
     "paseo",
@@ -11,7 +11,7 @@
     "diagrams",
     "maps"
   ],
-  "author": "anh-chu",
+  "author": "eliottcrancee",
   "license": "Apache-2.0",
   "homepage": "https://github.com/eliottcrancee/paseo-plugin-genui#readme",
   "repository": {

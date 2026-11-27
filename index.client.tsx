@@ -75,7 +75,7 @@ export default function contribute(client: PluginClientContext) {
 
   client.addSettingsScreen({
     id: "preferences",
-    title: "Generative UI",
+    title: "Gen-UI Plus",
     icon: "LayoutGrid",
     Component: GenUiSettingsScreen,
   });

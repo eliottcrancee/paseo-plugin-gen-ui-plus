@@ -1,6 +1,6 @@
 {
-  "id": "genui",
-  "name": "Generative UI",
+  "id": "gen-ui-plus",
+  "name": "Gen-UI Plus",
   "description": "Agents answer with charts, diagrams, maps, plans and forms rendered inline in the chat.",
   "icon": "assets/icon.png",
   "media": [

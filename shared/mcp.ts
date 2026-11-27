@@ -369,7 +369,7 @@ export async function handleMcpJsonRpc(
               tools: {},
             },
             serverInfo: {
-              name: "paseo-plugin-genui",
+              name: "paseo-plugin-gen-ui-plus",
               version: "0.4.0",
             },
           },

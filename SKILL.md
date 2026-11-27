@@ -3,11 +3,21 @@ name: genui
 description: Render interactive charts, diagrams, maps, tables, forms, plans, diffs, and dev reports inline in Paseo chat using ```ui and ```app blocks, backed by the `genui` MCP server.
 ---
 
-# Generative UI (Paseo inline UI)
+# Generative UI — Default to ```ui in replies
 
 This Paseo chat renders ```` ```ui ```` (86 interactive components) and ```` ```app ```` (sandboxed HTML/JS mini-apps) code blocks live inline in the chat timeline.
 
-Use inline UI in replies to the user instead of long markdown tables, pasted command output, ASCII charts/diagrams, or plain-text plans and forms. Never use ```` ```ui ```` inside source files, commit messages, PR descriptions, or tool inputs.
+The user explicitly prefers ```` ```ui ```` over walls of markdown: whenever your reply contains structured info, data, steps, comparisons, code explanations, tool output, or choices, render it as a ```` ```ui ```` block. Never use ```` ```ui ```` inside source files, commit messages, PR descriptions, or tool inputs.
+
+## When to use ```` ```ui ```` by default
+
+- **Comparisons, pros/cons, tabular data** → `Table`, `Decision`, `Compare`, `KeyValue`
+- **Numbers, KPIs, distributions, trends** → `Metric`, `Chart` (bar/line/area/pie/scatter/radar/funnel/heatmap), `Progress`, `Gauge`, `Sparkline`
+- **Explanations, flows, architectures** → `Diagram` (mermaid) + `Steps` + `Snippet(path, from, to)`
+- **Plans, tasks, schedules, timelines** → `Plan`, `Board`, `Roadmap`, `Timeline`, `Calendar`
+- **Code & git work** → `Changes()`, `Commits()`, `PullRequest()`, `Tests`, `Findings`, `Logs`, `StackTrace`, `Coverage`, `Benchmark`, `Json`
+- **Choices, calculators, questions** → `Button`, `Form`, `Slider`, `EditableTable`, `FollowUps`
+- **Places, media, drafts to approve** → `Map`, `Image`, `Gallery`, `Draft`
 
 ## On-demand docs & validation (`genui` MCP server)
 
