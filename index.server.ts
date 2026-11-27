@@ -16,6 +16,7 @@ import {
   galleryGetRpc,
   galleryImageRpc,
   galleryListRpc,
+  inspectContextRpc,
   loadAudioRpc,
   loadDataRpc,
   loadImageRpc,
@@ -53,6 +54,12 @@ import {
 } from "./server/data-source";
 import { buildMcpServerConfig, startMcpBridge, type McpBridgeHandle } from "./server/mcp-bridge";
 import {
+  buildContextInspectionReport,
+  buildContextInspectorSpec,
+  snapshotAgentCreate,
+  type CapturedAgentInit,
+} from "./server/context-inspector";
+import {
   createProjectReader,
   readProjectChanges,
   readProjectCommits,
@@ -63,6 +70,7 @@ import {
   readProjectThreads,
 } from "./server/project";
 import { createWebLookups } from "./server/web/lookups";
+import { runWebFetch, runWebSearch } from "./server/web/research";
 
 const PREAPPROVE_MCP_PROVIDERS = new Set(["claude", "codex", "opencode"]);
 
@@ -118,6 +126,8 @@ export default function contribute(server: PluginServerContext) {
           (req) => loadScopedFile(ctx.cwd ?? null, ctx.storageDir ?? null, req.path, req),
           findImage,
         ),
+      webSearch: (query, limit) => runWebSearch(query, limit),
+      webFetch: (url, maxChars) => runWebFetch(url, maxChars),
     }).catch((err) => {
       bridgePromise = null;
       throw err;
@@ -125,10 +135,36 @@ export default function contribute(server: PluginServerContext) {
     return bridgePromise;
   };
 
+  const pendingInitByKey = new Map<string, CapturedAgentInit>();
+  const initByAgentId = new Map<string, CapturedAgentInit>();
+  const initKey = (provider: string, cwd: string) => `${provider.toLowerCase()}:${cwd}`;
+  const rememberInit = (config: Parameters<typeof snapshotAgentCreate>[0]) => {
+    const snap = snapshotAgentCreate(config);
+    pendingInitByKey.set(initKey(snap.provider, snap.cwd), snap);
+    if (pendingInitByKey.size > 64) {
+      const oldest = pendingInitByKey.keys().next().value;
+      if (oldest !== undefined) pendingInitByKey.delete(oldest);
+    }
+  };
+
+  const unsubscribeCreated = server.on("agent.created", ({ agent }) => {
+    const snap = pendingInitByKey.get(initKey(agent.provider, agent.cwd));
+    if (snap) {
+      initByAgentId.set(agent.id, snap);
+      if (initByAgentId.size > 128) {
+        const oldest = initByAgentId.keys().next().value;
+        if (oldest !== undefined) initByAgentId.delete(oldest);
+      }
+    }
+  });
+
   server.before("agent.create", async ({ request }) => {
     if (request.config.internal) return;
     const current = await settings.read();
-    if (current.status === "ready" && !current.values.autoInstructions) return;
+    if (current.status === "ready" && !current.values.autoInstructions) {
+      rememberInit(request.config);
+      return;
+    }
     const webOn = current.status === "ready" ? current.values.webLookups : true;
     const extraFolders = current.status === "ready" ? parseFolders(current.values.extraFolders) : [];
     const mode = current.status === "ready" ? current.values.instructionMode : "mcp";
@@ -171,34 +207,43 @@ export default function contribute(server: PluginServerContext) {
           const fallbackPrompt = existing.includes(GENUI_MARKER)
             ? existing
             : [existing, buildFullInstructions(webOn, extraFolders)].filter(Boolean).join("\n\n");
+          const fallbackConfig = {
+            ...request.config,
+            systemPrompt: fallbackPrompt,
+          };
+          rememberInit(fallbackConfig);
           return {
             ...request,
-            config: {
-              ...request.config,
-              systemPrompt: fallbackPrompt,
-            },
+            config: fallbackConfig,
           };
         }
       }
 
+      const finalConfig = {
+        ...request.config,
+        systemPrompt: nextSystemPrompt,
+        ...(nextMcpServers ? { mcpServers: nextMcpServers } : {}),
+        ...(nextToolPolicy ? { toolPolicy: nextToolPolicy } : {}),
+      };
+      rememberInit(finalConfig);
       return {
         ...request,
-        config: {
-          ...request.config,
-          systemPrompt: nextSystemPrompt,
-          ...(nextMcpServers ? { mcpServers: nextMcpServers } : {}),
-          ...(nextToolPolicy ? { toolPolicy: nextToolPolicy } : {}),
-        },
+        config: finalConfig,
       };
     }
 
-    if (existing.includes(GENUI_MARKER)) return;
+    if (existing.includes(GENUI_MARKER)) {
+      rememberInit(request.config);
+      return;
+    }
+    const fullConfig = {
+      ...request.config,
+      systemPrompt: [existing, buildFullInstructions(webOn, extraFolders)].filter(Boolean).join("\n\n"),
+    };
+    rememberInit(fullConfig);
     return {
       ...request,
-      config: {
-        ...request.config,
-        systemPrompt: [existing, buildFullInstructions(webOn, extraFolders)].filter(Boolean).join("\n\n"),
-      },
+      config: fullConfig,
     };
   });
 
@@ -309,8 +354,40 @@ export default function contribute(server: PluginServerContext) {
     return { appended: true, name };
   });
 
+  server.handle(inspectContextRpc, async ({ agentId }, { paseo }) => {
+    let captured = initByAgentId.get(agentId) ?? null;
+    if (captured === null) {
+      try {
+        const snap = paseo.agents.ref(agentId).current() ?? (await paseo.agents.ref(agentId).refresh())?.agent;
+        if (snap) {
+          captured = pendingInitByKey.get(initKey(snap.provider, snap.cwd)) ?? null;
+        }
+      } catch {
+        // Ignore lookup error
+      }
+    }
+    const report = await buildContextInspectionReport(paseo, agentId, captured);
+    const code = buildContextInspectorSpec(report);
+    const id = `genui-context-${Date.now()}-${++demoSeq}`;
+    await paseo.agents.ref(agentId).timeline.append({
+      type: "plugin",
+      id,
+      kind: GENUI_BLOCK_KIND,
+      version: 1,
+      data: {
+        language: "ui",
+        code,
+        complete: true,
+        fenceIndex: 0,
+        messageId: id,
+      },
+    });
+    return { appended: true, sections: report.sections.length };
+  });
+
   return () => {
     unsubscribeSettings();
+    unsubscribeCreated();
     if (bridgePromise !== null) {
       void bridgePromise.then((bridge) => bridge.close()).catch(() => undefined);
       bridgePromise = null;

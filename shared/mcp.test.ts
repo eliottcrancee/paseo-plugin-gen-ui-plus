@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { examplesReport } from "../server/data-source";
+import { decodeDdgUrl, htmlToMarkdown, parseDdgHtml } from "../server/web/research";
 import { checkSpec } from "./fallback";
 import { buildFullInstructions, buildMcpSkillInstructions } from "./instructions";
 import {
@@ -16,6 +17,19 @@ const deps: McpDeps = {
   examples: (components) => examplesReport(components),
   checkUi: (spec) =>
     checkSpec(spec, async (req) => ({ ok: false, error: `missing ${req.path}` })),
+  webSearch: async (query) => ({
+    ok: true,
+    query,
+    results: [{ title: "Example Docs", url: "https://example.com/docs", snippet: "Helpful docs" }],
+  }),
+  webFetch: async (url) => ({
+    ok: true,
+    url,
+    title: "Example Page",
+    contentType: "text/html",
+    content: "Hello world",
+    truncated: false,
+  }),
 };
 
 describe("genui MCP server", () => {
@@ -51,6 +65,8 @@ describe("genui MCP server", () => {
       "genui_list_components",
       "genui_examples",
       "genui_check_ui",
+      "web_search",
+      "web_fetch",
     ]);
   });
 
@@ -147,5 +163,37 @@ describe("genui MCP server", () => {
   it("unwraps optional ```ui fences cleanly", () => {
     expect(unwrapUiFence('```ui\nCard("Hi", [])\n```')).toBe('Card("Hi", [])');
     expect(unwrapUiFence('Card("Hi", [])')).toBe('Card("Hi", [])');
+  });
+
+  it("handles local web_search and web_fetch tools and parses DDG/HTML cleanly", async () => {
+    const searchRes = await handleMcpJsonRpc(
+      { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "web_search", arguments: { query: "paseo" } } },
+      deps,
+    );
+    const searchText = (searchRes?.result as { content: { text: string }[] }).content[0]!.text;
+    expect(searchText).toContain("Example Docs");
+    expect(searchText).toContain("https://example.com/docs");
+
+    const fetchRes = await handleMcpJsonRpc(
+      { jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "web_fetch", arguments: { url: "https://example.com" } } },
+      deps,
+    );
+    const fetchText = (fetchRes?.result as { content: { text: string }[] }).content[0]!.text;
+    expect(fetchText).toContain("# Example Page");
+    expect(fetchText).toContain("Hello world");
+
+    expect(decodeDdgUrl("//duckduckgo.com/l/?uddg=https%3A%2F%2Fpola.rs%2F&rut=abc")).toBe("https://pola.rs/");
+    const parsed = parseDdgHtml(
+      '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fpola.rs%2F">Polars</a><a class="result__snippet">Fast DataFrames</a>',
+    );
+    expect(parsed).toEqual([{ title: "Polars", url: "https://pola.rs/", snippet: "Fast DataFrames" }]);
+
+    const md = htmlToMarkdown(
+      "<html><head><title>Doc &amp; Guide</title><style>body{}</style></head><body><nav>Menu</nav><main><h1>Intro</h1><p>Read <a href=\"https://example.com\">more</a>.</p></main></body></html>",
+    );
+    expect(md.title).toBe("Doc & Guide");
+    expect(md.text).toContain("# Intro");
+    expect(md.text).toContain("[more](https://example.com)");
+    expect(md.text).not.toContain("Menu");
   });
 });

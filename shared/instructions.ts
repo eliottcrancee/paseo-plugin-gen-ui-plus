@@ -152,6 +152,8 @@ export const GENUI_MCP_TOOL_NAMES = [
   "genui_list_components",
   "genui_examples",
   "genui_check_ui",
+  "web_search",
+  "web_fetch",
 ] as const;
 
 export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: readonly string[] = []): string {
@@ -176,6 +178,7 @@ export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: rea
     "- `genui_list_components(group?, query?)` — Discover component signatures by group or keyword.",
     "- `genui_guide(topic?)` — Full syntax, `charts` (hover tooltips, `lineDash`, `strokeWidth`, etc.), `code-work`, `reliability`.",
     "- `genui_check_ui(spec)` — Compile & validate your ```ui block before sending so it never renders an error card.",
+    ...(webLookups ? ["- `web_search(query, limit?)` & `web_fetch(url, maxChars?)` — Local web search and HTTPS page reader."] : []),
     "Reply style: start with 1 plain sentence giving the direct answer, then put the structured content in ```ui (do not duplicate it in markdown below).",
   ];
   if (!webLookups) {

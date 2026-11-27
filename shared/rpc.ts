@@ -234,6 +234,14 @@ export const appendDemoRpc = defineRpc({
   output: z.object({ appended: z.boolean(), name: z.string() }),
 });
 
+export const inspectContextRpc = defineRpc({
+  name: "genui.inspect_context",
+  input: z.object({
+    agentId: agentIdSchema,
+  }),
+  output: z.object({ appended: z.boolean(), sections: z.number() }),
+});
+
 export const genuiBlockDataSchema = z.object({
   language: z.enum(["ui", "app"]),
   code: z.string(),

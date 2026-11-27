@@ -5,6 +5,7 @@ import {
   appendDemoRpc,
   genuiBlockDataSchema,
   genuiTextDataSchema,
+  inspectContextRpc,
 } from "./shared/rpc";
 import {
   GENUI_BLOCK_KIND,
@@ -116,6 +117,16 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
+  client.addSlashCommand({
+    name: "genui-context",
+    description: "Inspect the initial context (system prompt, MCPs, skills, tools) sent to this agent",
+    argumentHint: "",
+    context: "agent",
+    async onSubmit({ rpc, agent }) {
+      await rpc(inspectContextRpc, { agentId: agent.id });
+    },
+  });
+
   client.addCommandCenterItem({
     id: "open-gallery",
     title: "Gen-UI: Open Component Gallery",
@@ -146,6 +157,17 @@ export default function contribute(client: PluginClientContext) {
     context: "agent",
     async onSelect({ rpc, agent }) {
       await rpc(appendDemoRpc, { agentId: agent.id });
+    },
+  });
+
+  client.addCommandCenterItem({
+    id: "inspect-context",
+    title: "Gen-UI Plus: Inspect Initial Context",
+    icon: "Eye",
+    keywords: ["genui", "context", "tokens", "prompt", "inspect"],
+    context: "agent",
+    async onSelect({ rpc, agent }) {
+      await rpc(inspectContextRpc, { agentId: agent.id });
     },
   });
 

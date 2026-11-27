@@ -57,6 +57,8 @@ When **Load component docs via MCP** is enabled (default), the plugin starts a l
 | `genui_list_components(group?, query?)` | Search component signatures by group or keyword |
 | `genui_examples(components)` | Fetch exact signatures and up to 3 working gallery examples (with data previews) for 1–6 components |
 | `genui_check_ui(spec)` | Compile, lint, and preview a ```` ```ui ```` block (including `Load(...)` files in the workspace / `$BB_THREAD_STORAGE`) |
+| `web_search(query, limit?)` | Local web search (no API key or external MCP service; respects the Web lookups setting) |
+| `web_fetch(url, maxChars?)` | Local HTTPS page/JSON fetcher with private-IP SSRF protection and HTML-to-Markdown extraction |
 
 You can switch back to the full inline system prompt anytime in **Settings → Plugins → Gen-UI Plus**. A standalone [`SKILL.md`](SKILL.md) is also included for manual use in Pi, OpenCode, or Claude Code.
 
@@ -98,6 +100,7 @@ Card("API Latency", [
 - `/genui [prompt]` — Teach an existing agent the Generative UI component language.
 - `/genui-demo [ComponentName]` — Insert a live interactive Gen-UI block into the current chat (e.g. `/genui-demo Decision` or `/genui-demo Map`).
 - `/genui-gallery` — Open the **Gen-UI Gallery** screen (179 examples across all 86 components + live Playground).
+- `/genui-context` — Inspect the initial context sent to the current agent (system prompt, MCP servers, workspace files, skills, and on Pi the full system sections + tool schemas + 1st-turn token usage) without sending a message to the LLM.
 
 ## Development
 

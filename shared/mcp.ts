@@ -53,6 +53,27 @@ export interface McpDeps {
     spec: string,
     ctx: McpRequestContext,
   ) => Promise<{ readonly ok: boolean; readonly report: string }>;
+  readonly webSearch?: (
+    query: string,
+    limit?: number,
+  ) => Promise<
+    | { readonly ok: true; readonly query: string; readonly results: readonly { readonly title: string; readonly url: string; readonly snippet: string }[] }
+    | { readonly ok: false; readonly error: string }
+  >;
+  readonly webFetch?: (
+    url: string,
+    maxChars?: number,
+  ) => Promise<
+    | {
+        readonly ok: true;
+        readonly url: string;
+        readonly title: string | null;
+        readonly contentType: string;
+        readonly content: string;
+        readonly truncated: boolean;
+      }
+    | { readonly ok: false; readonly error: string }
+  >;
 }
 
 export interface JsonRpcRequest {
@@ -139,6 +160,50 @@ export const GENUI_MCP_TOOLS: readonly McpToolDefinition[] = [
         },
       },
       required: ["spec"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "web_search",
+    description:
+      "Search the web locally (no external MCP service or API key) and return titles, URLs, and snippets.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query.",
+        },
+        limit: {
+          type: "number",
+          minimum: 1,
+          maximum: 12,
+          description: "Maximum number of results to return (default: 6).",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "web_fetch",
+    description:
+      "Fetch an HTTPS web page or JSON/text endpoint locally (with private-IP SSRF protection) and return clean readable Markdown/text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "HTTPS URL to fetch.",
+        },
+        maxChars: {
+          type: "number",
+          minimum: 500,
+          maximum: 40000,
+          description: "Maximum characters to return (default: 16000).",
+        },
+      },
+      required: ["url"],
       additionalProperties: false,
     },
   },
@@ -319,6 +384,75 @@ export async function callGenuiMcpTool(
       return {
         isError: !res.ok,
         content: [{ type: "text", text: res.report }],
+      };
+    }
+
+    case "web_search": {
+      if (!deps.webLookups()) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Web lookups are disabled in Gen-UI Plus settings." }],
+        };
+      }
+      if (!deps.webSearch) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "web_search is not available in this host." }],
+        };
+      }
+      const query = typeof input.query === "string" ? input.query.trim() : "";
+      if (!query) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Provide a non-empty `query` string." }],
+        };
+      }
+      const limit = typeof input.limit === "number" && Number.isFinite(input.limit) ? input.limit : 6;
+      const res = await deps.webSearch(query, limit);
+      if (!res.ok) {
+        return { isError: true, content: [{ type: "text", text: `web_search failed: ${res.error}` }] };
+      }
+      const formatted = res.results
+        .map((r, i) => `${i + 1}. **${r.title}**\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`)
+        .join("\n\n");
+      return {
+        content: [{ type: "text", text: formatted || `No results for "${query}".` }],
+      };
+    }
+
+    case "web_fetch": {
+      if (!deps.webLookups()) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Web lookups are disabled in Gen-UI Plus settings." }],
+        };
+      }
+      if (!deps.webFetch) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "web_fetch is not available in this host." }],
+        };
+      }
+      const url = typeof input.url === "string" ? input.url.trim() : "";
+      if (!url) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Provide a non-empty HTTPS `url`." }],
+        };
+      }
+      const maxChars = typeof input.maxChars === "number" && Number.isFinite(input.maxChars) ? input.maxChars : 16_000;
+      const res = await deps.webFetch(url, maxChars);
+      if (!res.ok) {
+        return { isError: true, content: [{ type: "text", text: `web_fetch failed: ${res.error}` }] };
+      }
+      const header = [
+        res.title ? `# ${res.title}` : null,
+        `URL: ${res.url} (${res.contentType})`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      return {
+        content: [{ type: "text", text: `${header}\n\n${res.content}` }],
       };
     }
 
