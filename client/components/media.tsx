@@ -536,12 +536,12 @@ function AudioWaveform({
       onResponderGrant={onSeekRatio === null ? undefined : seekTo}
       onResponderMove={onSeekRatio === null ? undefined : seekTo}
       style={{
-        flex: 1,
+        width: "100%",
         flexDirection: "row",
         alignItems: "center",
-        columnGap: 2,
+        gap: 1.5,
         height: AUDIO_BAR_HEIGHT,
-        opacity: seekable ? 1 : 0.8,
+        opacity: seekable ? 1 : 0.85,
       }}
     >
       {bars.map((bar, index) => {
@@ -551,11 +551,12 @@ function AudioWaveform({
             key={index}
             style={{
               flex: 1,
-              minWidth: 2,
-              height: Math.max(5, bar * AUDIO_BAR_HEIGHT),
-              minHeight: 5,
-              borderRadius: 2,
-              backgroundColor: played ? theme.colors.accent : theme.colors.border,
+              minWidth: 1.5,
+              height: Math.max(4, bar * AUDIO_BAR_HEIGHT),
+              minHeight: 4,
+              borderRadius: 1,
+              backgroundColor: played ? theme.colors.accent : theme.colors.foregroundMuted,
+              opacity: played ? 1 : 0.3,
             }}
           />
         );
@@ -579,7 +580,7 @@ function AudioBubble({
   const { snapshot, controller } = useWebAudio(url, rich);
   const [rate, setRate] = useState(1);
   const [hostPlaying, setHostPlaying] = useState(false);
-  const barCount = compact ? 26 : 40;
+  const barCount = compact ? 48 : 72;
   const fallbackBars = useMemo(() => waveformBars(src, barCount), [src, barCount]);
   const bars = useAudioBars(url, barCount, fallbackBars);
 
