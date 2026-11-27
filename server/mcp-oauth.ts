@@ -66,14 +66,33 @@ const FETCH_TIMEOUT_MS = 12_000;
 const pendingFlowsByUrl = new Map<string, PendingFlow>();
 const lastErrorByUrl = new Map<string, string>();
 
-export function normalizeServerUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim();
+export function expandEnvInUrl(
+  rawUrl: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): { url: string; missing: string[] } {
+  const missing: string[] = [];
+  const url = rawUrl.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (full, key: string) => {
+    const value = env[key];
+    if (value === undefined || value === "") {
+      missing.push(key);
+      return full;
+    }
+    return value;
+  });
+  return { url, missing };
+}
+
+export function normalizeServerUrl(
+  rawUrl: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const expanded = expandEnvInUrl(rawUrl, env).url.trim();
   try {
-    const parsed = new URL(trimmed);
+    const parsed = new URL(expanded);
     parsed.hash = "";
     return parsed.toString();
   } catch {
-    return trimmed;
+    return expanded;
   }
 }
 
@@ -397,6 +416,13 @@ export async function startMcpOAuthFlow(
   rawUrl: string,
   storePath = DEFAULT_STORE_PATH,
 ): Promise<{ ok: true; authUrl: string } | { ok: false; error: string }> {
+  const { missing } = expandEnvInUrl(rawUrl);
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `Missing environment variable${missing.length === 1 ? "" : "s"} in Paseo daemon: ${missing.join(", ")}`,
+    };
+  }
   const serverUrl = normalizeServerUrl(rawUrl);
   try {
     new URL(serverUrl);

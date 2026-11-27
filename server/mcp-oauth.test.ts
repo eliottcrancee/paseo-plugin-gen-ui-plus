@@ -31,8 +31,13 @@ afterEach(() => {
 });
 
 describe("mcp-oauth helpers", () => {
-  it("normalizes server URLs by trimming and removing fragments", () => {
+  it("normalizes server URLs by trimming, expanding env vars, and removing fragments", () => {
     expect(normalizeServerUrl("  https://mcp.notion.com/mcp#frag  ")).toBe("https://mcp.notion.com/mcp");
+    expect(
+      normalizeServerUrl("https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/mcp", {
+        SNOWFLAKE_ACCOUNT: "acme-eu",
+      }),
+    ).toBe("https://acme-eu.snowflakecomputing.com/mcp");
   });
 
   it("generates a valid PKCE S256 verifier and challenge pair", () => {
