@@ -478,6 +478,11 @@ function block(node: UiNode): string {
       // Text clients can't load workspace files: name the image and where it is.
       return `🖼 ${alt === "" ? src : `${alt} (${src})`}`;
     }
+    case "Audio": {
+      const src = inline(props.src).trim();
+      const title = inline(props.title).trim();
+      return `🎙 ${title === "" ? "Audio" : title} (${src})`;
+    }
     case "Table":
       return table(list(props.columns), list(props.rows));
     case "Chart": {
@@ -892,6 +897,8 @@ function block(node: UiNode): string {
       return `_(error: ${inline(props.message)})_`;
     case "Loading":
       return `_(loading ${inline(props.path)})_`;
+    default:
+      return "";
   }
 }
 

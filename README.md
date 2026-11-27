@@ -4,7 +4,7 @@
 
 ![Inline Map, Calendar, and Budget UI in Paseo chat](assets/screenshot-chat.png)
 
-![Gen-UI Gallery with 86 components and 179 live examples](assets/screenshot-gallery.png)
+![Gen-UI Gallery with 89 components and 180 live examples](assets/screenshot-gallery.png)
 
 ![Interactive Playground in Paseo](assets/screenshot-playground.png)
 
@@ -12,7 +12,7 @@
 
 Instead of answering with walls of Markdown, ASCII charts, or pasted command output, agents write ```` ```ui ```` and ```` ```app ```` blocks that Paseo compiles and renders live inline as the reply streams:
 
-- **On-demand MCP architecture (~88% less upfront context)**: Rather than dumping the full 86-component manual (~4,400 tokens) into every agent's system prompt, new agents receive a compact skill (~500 tokens) plus an attached **`genui` MCP server** (`genui_guide`, `genui_list_components`, `genui_examples`, `genui_check_ui`). Harnesses with dynamic MCP loading (like **Pi** + `pi-mcp-adapter`) keep tool schemas unloaded until needed, while eager harnesses (**OpenCode**, **Claude Code**, **Codex**) get all 4 tools immediately.
+- **On-demand MCP architecture (~88% less upfront context)**: Rather than dumping the full 89-component manual (~4,400 tokens) into every agent's system prompt, new agents receive a compact skill (~500 tokens) plus an attached **`genui` MCP server** (`genui_guide`, `genui_list_components`, `genui_examples`, `genui_check_ui`). Harnesses with dynamic MCP loading (like **Pi** + `pi-mcp-adapter`) keep tool schemas unloaded until needed, while eager harnesses (**OpenCode**, **Claude Code**, **Codex**) get all 4 tools immediately.
 - **Pre-reply validation**: Agents can compile, lint, and preview ```` ```ui ```` specs with `genui_check_ui` before sending — catching syntax errors, mismatched `Tabs`, invalid `Chart` series, and unreadable `Load(...)` paths before they ever become an error card.
 - **Interactive, theme-aware SVG charts**: All 8 chart types (`bar`, `line`, `area`, `pie`/`donut`, `scatter`, `radar`, `funnel`, `heatmap`) render as crisp SVG inside Paseo's light/dark theme with **hover tooltips**, **responsive column sizing** (readable 1:1 axes even in 3-column `Row` layouts), **flicker-free streaming**, and advanced styling (`lineDash`, `strokeWidth`, `fillOpacity`, `pointRadius`, `showGrid`, `showLegend`).
 - **Local interactivity**: Sliders, steppers, toggles, editable tables, and decision matrices recompute locally with zero extra model calls. Buttons and forms send structured answers back to the agent.
@@ -80,14 +80,14 @@ Card("API Latency", [
 - **Layout & data**: `stacked`, `orientation: "horizontal"`, `donut`, `smooth`, `showValues`, `height` (150–560 px), `title`, `xLabel`, `yLabel` (defaults to `unit`)
 - **Advanced styling** (chart-level or per-series): `lineDash` (`"dashed"`, `"dotted"`, `"dashdot"`, `"solid"`, `"8 4"`, or `[8, 4]`), `strokeWidth` (1–6), `fillOpacity` (0–1), `pointRadius` (0–8), `showGrid`, `showLegend`, `tooltip` (default `true`)
 
-## Components (86 across 10 groups)
+## Components (89 across 10 groups)
 
 | Group | Components |
 | --- | --- |
 | **Layout** | `Card` · `Row` · `Stack` · `Grid` · `Tabs` · `Details` · `Divider` · `Carousel` |
 | **Content** | `Text` · `Callout` · `Draft` · `Metric` · `Badge` · `Icon` · `KeyValue` · `Image` · `File` · `Entity` · `Sources` · `List` |
 | **Data** | `Table` · `Chart` · `Sparkline` · `Progress` · `Gauge` · `SegmentedBar` · `Steps` · `Timeline` · `Calendar` · `CalendarHeatmap` · `Tree` · `Code` · `Snippet` · `Diff` · `Diagram` |
-| **Media** | `ImageSearch` · `Gallery` · `Map` · `Hotspots` |
+| **Media** | `ImageSearch` · `Gallery` · `Audio` · `Map` · `Hotspots` |
 | **Inputs** | `Slider` · `Stepper` · `Toggle` · `Choice` · `Radio` · `Select` · `Checklist` · `ListEditor` · `Input` · `TextArea` · `DateInput` · `Rating` · `OptionCards` · `Swatches` · `EditableTable` · `Button` · `Form` · `FollowUps` |
 | **Widgets** | `Timer` · `Quiz` · `Flashcards` · `Walkthrough` |
 | **Project** | `Changes` · `Commits` · `PullRequest` · `Threads` · `Tests` · `Json` |
@@ -99,7 +99,7 @@ Card("API Latency", [
 
 - `/genui [prompt]` — Teach an existing agent the Generative UI component language.
 - `/genui-demo [ComponentName]` — Insert a live interactive Gen-UI block into the current chat (e.g. `/genui-demo Decision` or `/genui-demo Map`).
-- `/genui-gallery` — Open the **Gen-UI Gallery** screen (179 examples across all 86 components + live Playground).
+- `/genui-gallery` — Open the **Gen-UI Gallery** screen (180 examples across all 89 components + live Playground).
 - `/genui-context` — Inspect the initial context sent to the current agent (system prompt, MCP servers, workspace files, skills, and on Pi the full system sections + tool schemas + 1st-turn token usage) without sending a message to the LLM.
 
 ## Development

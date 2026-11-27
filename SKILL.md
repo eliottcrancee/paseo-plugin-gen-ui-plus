@@ -5,7 +5,7 @@ description: Render interactive charts, diagrams, maps, tables, forms, plans, di
 
 # Generative UI — Default to ```ui in replies
 
-This Paseo chat renders ```` ```ui ```` (86 interactive components) and ```` ```app ```` (sandboxed HTML/JS mini-apps) code blocks live inline in the chat timeline.
+This Paseo chat renders ```` ```ui ```` (89 interactive components) and ```` ```app ```` (sandboxed HTML/JS mini-apps) code blocks live inline in the chat timeline.
 
 The user explicitly prefers ```` ```ui ```` over walls of markdown: whenever your reply contains structured info, data, steps, comparisons, code explanations, tool output, or choices, render it as a ```` ```ui ```` block. Never use ```` ```ui ```` inside source files, commit messages, PR descriptions, or tool inputs.
 
@@ -17,11 +17,11 @@ The user explicitly prefers ```` ```ui ```` over walls of markdown: whenever you
 - **Plans, tasks, schedules, timelines** → `Plan`, `Board`, `Roadmap`, `Timeline`, `Calendar`
 - **Code & git work** → `Changes()`, `Commits()`, `PullRequest()`, `Tests`, `Findings`, `Logs`, `StackTrace`, `Coverage`, `Benchmark`, `Json`
 - **Choices, calculators, questions** → `Button`, `Form`, `Slider`, `EditableTable`, `FollowUps`
-- **Places, media, drafts to approve** → `Map`, `Image`, `Gallery`, `Draft`
+- **Places, media, drafts to approve** → `Map`, `Image`, `Gallery`, `Audio`, `Draft`
 
 ## On-demand docs & validation (`genui` MCP server)
 
-Instead of loading all 86 component signatures into every conversation upfront, component documentation, live examples, and spec validation are exposed through the **`genui`** MCP server (lazy-loaded in harnesses like Pi with `pi-mcp-adapter`, or directly available in OpenCode / Claude Code / Codex):
+Instead of loading all 89 component signatures into every conversation upfront, component documentation, live examples, and spec validation are exposed through the **`genui`** MCP server (lazy-loaded in harnesses like Pi with `pi-mcp-adapter`, or directly available in OpenCode / Claude Code / Codex):
 
 1. **`genui_guide(topic?)`** — Read the DSL syntax (`$state`, expressions, actions, `Load(...)`, ```` ```app ````), chart options (`charts`), code-work recipes (`code-work`), or common pitfalls (`reliability`).
 2. **`genui_list_components(group?, query?)`** — Discover component signatures by group (`Layout`, `Content`, `Data`, `Media`, `Inputs`, `Widgets`, `Project`, `Dev`, `Manage`, `Evidence`) or keyword search.

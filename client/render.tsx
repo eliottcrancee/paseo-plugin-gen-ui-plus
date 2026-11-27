@@ -68,7 +68,7 @@ import {
   Toggle,
 } from "./components/inputs";
 import { Card, Carousel, Details, Divider, Grid, Row, Stack, Tabs } from "./components/layout";
-import { Gallery, Hotspots, ImageSearch, MapView } from "./components/media";
+import { AudioPlayer, Gallery, Hotspots, ImageSearch, MapView } from "./components/media";
 import {
   Acceptance,
   Changes,
@@ -156,6 +156,7 @@ export const RENDERERS = {
   SegmentedBar,
   ImageSearch,
   Gallery,
+  Audio: AudioPlayer,
   Map: MapView,
   Changes,
   Commits,

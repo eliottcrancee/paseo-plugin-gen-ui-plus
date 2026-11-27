@@ -1,0 +1,8 @@
+Card("Voice notes", [
+  Text("Like a voice message: play/pause, scrub the waveform, switch speed."),
+  Stack([
+    Audio("audio/voice-note.wav", title: "Léa — coffee run ☕"),
+    Audio("audio/voice-note.wav", title: "Léa — the shortcut"),
+  ]),
+  Text("`Audio(src, title?)` plays a local file (`wav`, `mp3`, `m4a`, `ogg`, `flac`…), e.g. `Audio(\"$BB_THREAD_STORAGE/recording.mp3\")`. Desktop gives full controls; mobile plays without scrubbing.")
+])

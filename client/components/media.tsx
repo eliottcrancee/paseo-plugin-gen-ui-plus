@@ -1,12 +1,15 @@
+import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { ExternalLink } from "@getpaseo/plugin/client/ui";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Image as RNImage, Pressable, StyleSheet, Text, View } from "react-native";
 import { fitView, project, tileZoom, toScreen, visibleTiles, zoomAround } from "../../shared/logic/mapMath";
 import { hotspotPoints, imageRef } from "../../shared/logic/references-model";
+import { formatAudioTime, nextRate, rateLabel, resamplePeaks, waveformBars } from "../../shared/logic/audio-logic";
 import { asRecord, finiteNumber, list, optionalText, text, type Props } from "../../shared/logic/values";
 import { useGeocodePlace, useImageSearch, useMapTileLoader } from "../loaders";
 import { ErrorLine } from "../node-renderer";
+import { canPlayWebAudio, createWebAudioController, extractAudioPeaks, type WebAudioController, type WebAudioState } from "../web";
 import { useUiRuntime, type ImageUrl } from "../runtime";
 import { LoadedImageView } from "./content";
 import { ImageLightbox } from "./image-lightbox";
@@ -438,4 +441,294 @@ export function Hotspots({ props }: { props: Props }) {
       </View>
     </View>
   );
+}
+
+const AUDIO_BAR_HEIGHT = 26;
+const AUDIO_RATES_NOTE = "Scrub & vitesse : desktop uniquement";
+/** Peaks are decoded once per file, at a higher resolution than any bar count. */
+const PEAK_BUCKETS = 200;
+const PEAK_CACHE = new Map<string, number[] | null>();
+
+function rememberPeaks(url: string, peaks: number[] | null): void {
+  PEAK_CACHE.delete(url);
+  PEAK_CACHE.set(url, peaks);
+  if (PEAK_CACHE.size > 32) {
+    const oldest = PEAK_CACHE.keys().next().value;
+    if (oldest !== undefined) PEAK_CACHE.delete(oldest);
+  }
+}
+
+/**
+ * The bars to draw: the file's real decoded waveform once it is available,
+ * the seeded pseudo-waveform until then (and on native, where decoding is not
+ * possible).
+ */
+function useAudioBars(url: string, count: number, fallback: readonly number[]): readonly number[] {
+  const [peaks, setPeaks] = useState<number[] | null>(() => PEAK_CACHE.get(url) ?? null);
+  useEffect(() => {
+    if (!canPlayWebAudio()) return;
+    const cached = PEAK_CACHE.get(url);
+    if (cached !== undefined) {
+      setPeaks(cached);
+      return;
+    }
+    let live = true;
+    setPeaks(null);
+    void extractAudioPeaks(url, PEAK_BUCKETS).then((decoded) => {
+      const value = decoded !== null && decoded.length > 8 ? decoded : null;
+      rememberPeaks(url, value);
+      if (live) setPeaks(value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [url]);
+  return peaks === null ? fallback : resamplePeaks(peaks, count);
+}
+
+interface AudioSnapshot {
+  readonly playing: boolean;
+  readonly time: number;
+  readonly duration: number;
+}
+
+function useWebAudio(url: string, enabled: boolean): { snapshot: AudioSnapshot; controller: WebAudioController | null } {
+  const [snapshot, setSnapshot] = useState<AudioSnapshot>({ playing: false, time: 0, duration: 0 });
+  const [controller, setController] = useState<WebAudioController | null>(null);
+  useEffect(() => {
+    if (!enabled || !canPlayWebAudio()) return;
+    let created: WebAudioController | null = null;
+    const sync = () => {
+      if (created !== null) setSnapshot(created.read());
+    };
+    created = createWebAudioController(url, sync);
+    if (created === null) return;
+    setController(created);
+    setSnapshot(created.read());
+    return () => created?.destroy();
+  }, [url, enabled]);
+  return { snapshot, controller };
+}
+
+function AudioWaveform({
+  bars,
+  ratio,
+  seekable,
+  onSeekRatio,
+  theme,
+}: {
+  bars: readonly number[];
+  ratio: number;
+  seekable: boolean;
+  onSeekRatio: ((ratio: number) => void) | null;
+  theme: PluginTheme;
+}) {
+  const [width, setWidth] = useState(0);
+  const seekTo = (event: { nativeEvent: { locationX: number } }) => {
+    if (onSeekRatio === null || width <= 0) return;
+    onSeekRatio(Math.min(1, Math.max(0, event.nativeEvent.locationX / width)));
+  };
+  return (
+    <View
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      onStartShouldSetResponder={onSeekRatio === null ? undefined : () => true}
+      onMoveShouldSetResponder={onSeekRatio === null ? undefined : () => true}
+      onResponderGrant={onSeekRatio === null ? undefined : seekTo}
+      onResponderMove={onSeekRatio === null ? undefined : seekTo}
+      style={{
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        columnGap: 2,
+        height: AUDIO_BAR_HEIGHT,
+        opacity: seekable ? 1 : 0.8,
+      }}
+    >
+      {bars.map((bar, index) => {
+        const played = index < Math.floor(ratio * bars.length);
+        return (
+          <View
+            key={index}
+            style={{
+              flex: 1,
+              minWidth: 2,
+              height: Math.max(5, bar * AUDIO_BAR_HEIGHT),
+              minHeight: 5,
+              borderRadius: 2,
+              backgroundColor: played ? theme.colors.accent : theme.colors.border,
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+function AudioBubble({
+  src,
+  title,
+  url,
+  rich,
+}: {
+  src: string;
+  title: string | null;
+  url: string;
+  rich: boolean;
+}) {
+  const { theme, compact, playAudio } = useUiRuntime();
+  const { snapshot, controller } = useWebAudio(url, rich);
+  const [rate, setRate] = useState(1);
+  const [hostPlaying, setHostPlaying] = useState(false);
+  const barCount = compact ? 26 : 40;
+  const fallbackBars = useMemo(() => waveformBars(src, barCount), [src, barCount]);
+  const bars = useAudioBars(url, barCount, fallbackBars);
+
+  useEffect(() => {
+    controller?.setRate(rate);
+  }, [controller, rate]);
+
+  const playing = rich ? snapshot.playing : hostPlaying;
+  const duration = snapshot.duration;
+  const ratio = duration > 0 ? Math.min(1, snapshot.time / duration) : 0;
+
+  const toggle = () => {
+    if (rich) {
+      if (snapshot.playing) controller?.pause();
+      else controller?.play();
+      return;
+    }
+    if (hostPlaying || !playAudio) return;
+    setHostPlaying(true);
+    void playAudio(url)
+      .catch(() => undefined)
+      .finally(() => setHostPlaying(false));
+  };
+
+  const seekRatio =
+    rich && controller !== null && duration > 0 ? (r: number) => controller.seek(r * duration) : null;
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 18,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surface2,
+      }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={playing ? "Pause" : "Play"}
+        onPress={toggle}
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          backgroundColor: theme.colors.accent,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon
+          name={playing ? "Pause" : "Play"}
+          size={16}
+          color={theme.colors.accentForeground}
+        />
+      </Pressable>
+      <View style={{ flex: 1, gap: 4 }}>
+        {title !== null ? (
+          <Text
+            numberOfLines={1}
+            style={{ color: theme.colors.foreground, fontSize: 12.5, fontWeight: "600" }}
+          >
+            {title}
+          </Text>
+        ) : null}
+        <AudioWaveform
+          bars={bars}
+          ratio={ratio}
+          seekable={seekRatio !== null}
+          onSeekRatio={seekRatio}
+          theme={theme}
+        />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, fontFamily: "monospace" }}>
+            {formatAudioTime(snapshot.time)} / {formatAudioTime(duration)}
+          </Text>
+          {rich ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Playback speed, currently ${rateLabel(rate)}`}
+              onPress={() => setRate((current) => nextRate(current))}
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 10,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surface1,
+              }}
+            >
+              <Text style={{ color: theme.colors.foreground, fontSize: 11, fontWeight: "600" }}>
+                {rateLabel(rate)}
+              </Text>
+            </Pressable>
+          ) : (
+            <Text style={{ color: theme.colors.foregroundMuted, fontSize: 10.5 }}>
+              {AUDIO_RATES_NOTE}
+            </Text>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export function AudioPlayer({ props }: { props: Props }) {
+  const { theme, loadAudio } = useUiRuntime();
+  const src = text(props.src);
+  const title = optionalText(props.title);
+  const [resolved, setResolved] = useState<ImageUrl | null>(null);
+
+  useEffect(() => {
+    if (!src.trim() || !loadAudio) return;
+    let live = true;
+    setResolved(null);
+    void loadAudio(src).then((res) => {
+      if (live) setResolved(res);
+    });
+    return () => {
+      live = false;
+    };
+  }, [src, loadAudio]);
+
+  if (!src.trim()) return <ErrorLine message="Audio src is empty" />;
+  if (!loadAudio) return <ErrorLine message="Audio cannot load on this host" />;
+  if (resolved === null) {
+    return (
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingVertical: 12,
+          paddingHorizontal: 12,
+          borderRadius: 18,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.colors.border,
+          backgroundColor: theme.colors.surface2,
+        }}
+      >
+        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>Loading audio…</Text>
+      </View>
+    );
+  }
+  if (!resolved.ok) return <ErrorLine message={resolved.error} />;
+
+  return <AudioBubble src={src} title={title} url={resolved.url} rich={canPlayWebAudio()} />;
 }

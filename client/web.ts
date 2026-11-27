@@ -23,6 +23,33 @@ interface WebIframeElement {
   remove(): void;
 }
 
+interface WebAudioElement {
+  src: string;
+  playbackRate: number;
+  currentTime: number;
+  readonly duration: number;
+  readonly paused: boolean;
+  readonly ended: boolean;
+  play(): unknown;
+  pause(): void;
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+}
+
+interface WebAudioBuffer {
+  readonly numberOfChannels: number;
+  readonly length: number;
+  getChannelData(channel: number): Float32Array;
+}
+
+interface WebAudioContext {
+  decodeAudioData(data: ArrayBuffer): Promise<WebAudioBuffer>;
+}
+
+interface WebFetchResponse {
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
 interface WebContainerElement {
   innerHTML: string;
   appendChild(child: WebIframeElement): void;
@@ -37,6 +64,7 @@ interface WebGlobal {
   readonly localStorage?: WebStorage;
   readonly document?: {
     createElement(tag: "iframe"): WebIframeElement;
+    createElement(tag: "audio"): WebAudioElement;
   };
   readonly window?: {
     addEventListener(type: "message", listener: (event: WebMessageEvent) => void): void;
@@ -45,6 +73,12 @@ interface WebGlobal {
     readonly history?: { pushState(state: null, unused: string, url: string): void };
     dispatchEvent?(event: unknown): boolean;
   };
+  readonly OfflineAudioContext?: new (
+    channels: number,
+    length: number,
+    sampleRate: number,
+  ) => WebAudioContext;
+  readonly fetch?: (url: string) => Promise<WebFetchResponse>;
   readonly PopStateEvent?: new (type: "popstate") => unknown;
 }
 
@@ -82,6 +116,118 @@ export function writeStorage(key: string, value: string): void {
 export function canRenderWebIframe(): boolean {
   const web = getWeb();
   return Platform.OS === "web" && Boolean(web?.document && web?.window);
+}
+
+export interface WebAudioState {
+  readonly playing: boolean;
+  readonly time: number;
+  readonly duration: number;
+}
+
+export interface WebAudioController {
+  play(): void;
+  pause(): void;
+  /** Jump to an absolute position in seconds; clamped to the loaded duration. */
+  seek(seconds: number): void;
+  setRate(rate: number): void;
+  read(): WebAudioState;
+  destroy(): void;
+}
+
+/** True on web/desktop, where a real `<audio>` element can back the player. */
+export function canPlayWebAudio(): boolean {
+  return getWeb()?.document !== undefined;
+}
+
+const AUDIO_EVENTS = ["timeupdate", "ended", "loadedmetadata", "play", "pause"] as const;
+
+/**
+ * Builds a seekable, speed-adjustable player around an unattached `<audio>`
+ * element. `onChange` fires on progress, metadata, and play/pause so the UI
+ * can call `read()`; returns null on native, where the renderer falls back to
+ * the host's play-only `client.playAudio`.
+ */
+export function createWebAudioController(url: string, onChange: () => void): WebAudioController | null {
+  const web = getWeb();
+  if (!web?.document) return null;
+  let audio: WebAudioElement;
+  try {
+    audio = web.document.createElement("audio");
+  } catch {
+    return null;
+  }
+  audio.src = url;
+  for (const event of AUDIO_EVENTS) audio.addEventListener(event, onChange);
+  return {
+    play() {
+      void Promise.resolve(audio.play()).catch(() => onChange());
+    },
+    pause() {
+      audio.pause();
+    },
+    seek(seconds) {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      audio.currentTime = Math.min(Math.max(seconds, 0), duration > 0 ? Math.max(0, duration - 0.05) : 0);
+      onChange();
+    },
+    setRate(rate) {
+      audio.playbackRate = rate;
+    },
+    read(): WebAudioState {
+      return {
+        playing: !audio.paused && !audio.ended,
+        time: audio.currentTime,
+        duration: Number.isFinite(audio.duration) ? audio.duration : 0,
+      };
+    },
+    destroy() {
+      try {
+        audio.pause();
+        for (const event of AUDIO_EVENTS) audio.removeEventListener(event, onChange);
+      } catch {
+        // The element is already gone.
+      }
+    },
+  };
+}
+
+/**
+ * Decodes a data-url audio file and reduces it to `buckets` RMS peaks,
+ * normalized to [0.15, 1] for drawing a real waveform. Returns null on native
+ * or when decoding fails (unsupported codec, truncated file), and the caller
+ * falls back to the seeded pseudo-waveform. OfflineAudioContext avoids any
+ * audio-device permission: it decodes without playing.
+ */
+export async function extractAudioPeaks(dataUrl: string, buckets: number): Promise<number[] | null> {
+  const web = getWeb();
+  const Ctor = web?.OfflineAudioContext;
+  if (!Ctor || !web?.fetch || buckets <= 0) return null;
+  try {
+    const raw = await (await web.fetch(dataUrl)).arrayBuffer();
+    const context = new Ctor(1, 1, 44100);
+    const buffer = await context.decodeAudioData(raw);
+    const channel = buffer.getChannelData(0);
+    const size = Math.max(1, Math.floor(channel.length / buckets));
+    const peaks: number[] = [];
+    let loudest = 0.0001;
+    for (let bucket = 0; bucket < buckets; bucket++) {
+      const start = bucket * size;
+      const end = Math.min(channel.length, start + size);
+      let sum = 0;
+      let count = 0;
+      for (let index = start; index < end; index++) {
+        const sample = channel[index];
+        sum += sample * sample;
+        count++;
+      }
+      const rms = Math.sqrt(sum / Math.max(1, count));
+      peaks.push(rms);
+      if (rms > loudest) loudest = rms;
+    }
+    return peaks.map((peak) => 0.15 + 0.85 * Math.min(1, peak / loudest));
+  } catch {
+    return null;
+  }
 }
 
 const CSP =

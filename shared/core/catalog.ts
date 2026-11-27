@@ -385,6 +385,14 @@ export const COMPONENTS = {
     ],
     summary: "paths, https URLs or {src|query, caption?}",
   },
+  Audio: {
+    group: "Media",
+    params: [
+      { name: "src", kind: "string" },
+      { name: "title", kind: "string", optional: true },
+    ],
+    summary: "a voice-note player for a local audio file (wav, mp3, m4a, ogg, flac…), e.g. `$BB_THREAD_STORAGE/recording.mp3`: play/pause, scrub the waveform, cycle 1×/1.5×/2×; full controls on desktop, tap-to-play on mobile",
+  },
   Map: {
     group: "Media",
     params: [

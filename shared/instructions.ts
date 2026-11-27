@@ -162,7 +162,7 @@ export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: rea
   const lines = [
     GENUI_MARKER,
     "# Gen-UI Plus — Interactive Inline UI for Paseo",
-    "This Paseo chat renders ```ui (87 interactive components) and ```app (sandboxed offline HTML/CSS/JS mini-apps) live inline. The user strongly prefers ```ui over walls of Markdown, ASCII diagrams/charts, or pasted command output. Use ```ui only in replies to the user — never inside source files, commits, PRs, or tool inputs.",
+    "This Paseo chat renders ```ui (89 interactive components) and ```app (sandboxed offline HTML/CSS/JS mini-apps) live inline. The user strongly prefers ```ui over walls of Markdown, ASCII diagrams/charts, or pasted command output. Use ```ui only in replies to the user — never inside source files, commits, PRs, or tool inputs.",
     "",
     "## When to use ```ui by default",
     "Open your reply with 1 plain sentence giving the direct answer (chat previews show only text), then put the structured content in a single ```ui block (do not duplicate it in Markdown below):",
@@ -173,7 +173,7 @@ export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: rea
     "- Plans, tasks, roadmaps, schedules → `Plan`, `Board`, `Roadmap`, `Timeline`, `Calendar`, `CalendarHeatmap`, `Estimate`, `Status`",
     "- Code, git & dev reports → `Changes()`, `Commits()`, `PullRequest()`, `Threads()`, `Environments()`, `Tests`, `Findings`, `Logs`, `StackTrace`, `Coverage`, `Dependencies`, `Pipeline`, `Benchmark`, `Waterfall`, `Treemap`, `Json`",
     "- User choices, calculators, questions → `Button`, `Form`, `Choice`, `Radio`, `Checklist`, `Select`, `OptionCards`, `Slider`, `Stepper`, `Toggle`, `Input`, `TextArea`, `DateInput`, `Rating`, `EditableTable`, `FollowUps`",
-    "- Places, media, text to approve → `Map`, `Image`, `ImageSearch`, `Gallery`, `Hotspots`, `Sources`, `Entity`, `Draft(markdown, title)`",
+    "- Places, media, audio to play, text to approve → `Map`, `Image`, `ImageSearch`, `Gallery`, `Audio(src, title?)`, `Hotspots`, `Sources`, `Entity`, `Draft(markdown, title)`",
     "",
     "## DSL Syntax & Core Signatures",
     "- One statement per line. `$x = 10` declares interactive state inputs bind to; `name = expr` names a computed value; `f = (a, b) => expr` names a helper; bare expressions render.",
@@ -226,7 +226,7 @@ export function buildMcpSkillInstructions(webLookups: boolean, extraFolders: rea
       : []),
     "",
     "## Gen-UI Plus Configuration & Commands",
-    "- **Sidebar hub**: **Gallery** (87 components), **Playground**, **MCP Servers** (`stdio`/`http`/`sse` + OAuth + `${ENV_VAR}`), **Skills** (local/Git, eager or lazy MCP; also via composer pill).",
+    "- **Sidebar hub**: **Gallery** (89 components), **Playground**, **MCP Servers** (`stdio`/`http`/`sse` + OAuth + `${ENV_VAR}`), **Skills** (local/Git, eager or lazy MCP; also via composer pill).",
     "- **Settings → Plugins → Gen-UI Plus**: auto-instructions, MCP vs full mode, `webLookups`, `extraFolders`.",
     "- **Commands**: `/genui-context`, `/genui-demo [Component]`, `/genui-gallery`, `/genui [prompt]`.",
   ];
