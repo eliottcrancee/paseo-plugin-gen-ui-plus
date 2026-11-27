@@ -15,7 +15,9 @@ import {
 } from "../shared/core";
 import type { Action, Diagnostic, Value } from "../shared/core/types";
 import type { GenUiBlockData, GenUiTextData } from "../shared/rpc";
+import { containsLatexMath } from "../shared/segment";
 import { useAudioLoader, useImageLoader, useLoadedData, useTextLoader, type FileScope } from "./loaders";
+import { MarkdownText } from "./markdown";
 import { RenderNodes } from "./render";
 import { UiRuntimeContext, type UiRuntime } from "./runtime";
 import {
@@ -539,10 +541,15 @@ export function TimelineTextItem({
   layout,
 }: PluginTimelineItemProps<GenUiTextData>) {
   const revealed = useRevealedText(item.data.text, item.data.phase ?? "complete");
-  // Paseo's own renderer and testID give this text the host's links, selection and copy, and plugin styles such as Chat Polish.
+  // When prose contains LaTeX ($...$ / $$...$$), render with Gen-UI's MarkdownText (which supports MathML/Unicode math).
+  // Otherwise use Paseo's own Markdown renderer for host links, selection/copy, and plugin styles.
   return (
     <View testID="assistant-message">
-      <Markdown>{revealed}</Markdown>
+      {containsLatexMath(revealed) ? (
+        <MarkdownText text={revealed} theme={theme} compact={layout.compact} />
+      ) : (
+        <Markdown>{revealed}</Markdown>
+      )}
     </View>
   );
 }

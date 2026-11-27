@@ -45,13 +45,38 @@ export function segmentMessage(text: string, phase: "streaming" | "complete"): M
   return segments;
 }
 
+const FENCED_CODE_RE = /```[\s\S]*?```/g;
+const INLINE_CODE_RE = /`[^`\n]+`/g;
+const DISPLAY_MATH_RE = /\$\$[^\n$][\s\S]*?\$\$/;
+const INLINE_MATH_RE = /(?<!\\)\$(?!\$)([^$\n]+?)(?<!\\)\$(?!\$)/g;
+const LATEX_SIGNAL_RE = /\\[a-zA-Z]{2,}|[\w)}\]]\^[\w({\\+-]|[\w)}\]]_[\w({\\]/;
+
+/**
+ * Returns true when prose outside code blocks contains LaTeX math (`$$...$$` or
+ * inline `$...$` with LaTeX commands/exponents/subscripts), ignoring prices like `$10 and $20`.
+ */
+export function containsLatexMath(text: string): boolean {
+  if (!text.includes("$")) return false;
+  const stripped = text.replace(FENCED_CODE_RE, "").replace(INLINE_CODE_RE, "");
+  if (DISPLAY_MATH_RE.test(stripped)) return true;
+  INLINE_MATH_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = INLINE_MATH_RE.exec(stripped)) !== null) {
+    const inner = match[1] ?? "";
+    if (!inner || /^\s|\s$/.test(inner)) continue;
+    if (LATEX_SIGNAL_RE.test(inner)) return true;
+  }
+  return false;
+}
+
 export function splitTimelineMessage(
   text: string,
   phase: "streaming" | "complete",
   messageId?: string,
 ): { items: PluginTimelineItem[] } | undefined {
   const segments = segmentMessage(text, phase);
-  if (!segments.some((segment) => segment.kind === "fence")) return undefined;
+  const hasFence = segments.some((segment) => segment.kind === "fence");
+  if (!hasFence && !containsLatexMath(text)) return undefined;
 
   const items: PluginTimelineItem[] = [];
   segments.forEach((segment) => {
